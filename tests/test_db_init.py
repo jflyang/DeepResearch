@@ -38,7 +38,7 @@ def test_task_table_columns():
     columns = {col["name"] for col in inspector.get_columns("tasks")}
 
     expected_columns = {
-        "id", "topic", "canonical_topic", "mode", "language", "depth",
+        "id", "task_type", "topic", "canonical_topic", "mode", "language", "depth",
         "include_gossip", "include_books", "include_video",
         "status", "obsidian_path",
         "user_language", "working_language", "output_language", "search_strategy",

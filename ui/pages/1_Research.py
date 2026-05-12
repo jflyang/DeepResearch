@@ -24,11 +24,11 @@ try:
         obsidian_path = vault_path_setting
         st.markdown(f"📁 **Obsidian Vault**　✅ 默认 Vault 可用：`{vault_path_setting}`")
     elif configured and not exists:
-        st.warning(f"📁 **Obsidian Vault**　⚠️ 默认 Vault 路径无效：路径不存在 — `{vault_path_setting}`　[前往 Settings 修复](/3_Settings)")
+        st.warning(f"📁 **Obsidian Vault**　⚠️ 默认 Vault 路径无效：路径不存在 — `{vault_path_setting}`　[前往 Settings 修复](/9_Settings)")
     elif configured and not writable:
-        st.warning(f"📁 **Obsidian Vault**　⚠️ 默认 Vault 路径无效：路径不可写 — `{vault_path_setting}`　[前往 Settings 修复](/3_Settings)")
+        st.warning(f"📁 **Obsidian Vault**　⚠️ 默认 Vault 路径无效：路径不可写 — `{vault_path_setting}`　[前往 Settings 修复](/9_Settings)")
     else:
-        st.info("📁 **Obsidian Vault**　⚠️ 未配置默认 Vault。研究可以运行，但 Markdown/Obsidian 导出功能不可用。请到 [Settings](/3_Settings) 配置。")
+        st.info("📁 **Obsidian Vault**　⚠️ 未配置默认 Vault。研究可以运行，但 Markdown/Obsidian 导出功能不可用。请到 [Settings](/9_Settings) 配置。")
 except Exception:
     st.info("📁 **Obsidian Vault**　⚠️ 无法获取 Vault 配置（后端未连接？）。研究仍可运行，但导出不可用。")
 

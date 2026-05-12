@@ -55,6 +55,12 @@ class LLMRouter:
             data: dict[str, Any] = yaml.safe_load(f) or {}
         self._providers_config = data.get("llm_providers", {})
 
+    def get_active_provider_name(self) -> str:
+        """获取当前 active provider 名称（从 runtime_settings 读取）。"""
+        from core.config import _load_runtime_settings
+        runtime = _load_runtime_settings()
+        return runtime.get("active_provider", get_settings().active_llm_provider)
+
     def get_provider(self, name: str) -> BaseLLMProvider:
         """根据 provider name 返回实例。"""
         settings = get_settings()
@@ -69,6 +75,16 @@ class LLMRouter:
             raise LLMProviderNotFound(name)
 
         cfg = self._providers_config[name]
+
+        # 检查 llm.providers 中的 enabled 状态（runtime_settings 优先）
+        from core.config import _load_runtime_settings
+        runtime = _load_runtime_settings()
+        llm_rt = runtime.get("llm", {})
+        llm_providers = llm_rt.get("providers", {})
+        provider_rt_cfg = llm_providers.get(name, {})
+
+        if "enabled" in provider_rt_cfg and not provider_rt_cfg["enabled"]:
+            raise LLMProviderDisabled(name)
 
         # 检查 enabled（静态或环境变量）
         if not self._is_enabled(cfg):

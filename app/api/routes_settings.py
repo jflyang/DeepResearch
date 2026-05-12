@@ -121,6 +121,41 @@ class ActiveProviderResponse(BaseModel):
     active_provider: str
 
 
+# --- Service Priority schemas ---
+
+
+class LLMProviderPriorityConfig(BaseModel):
+    enabled: bool = False
+
+
+class LLMPriorityConfig(BaseModel):
+    active_provider: str = "deepseek"
+    provider_priority: list[str] = []
+    providers: dict[str, LLMProviderPriorityConfig] = {}
+
+
+class SearchProviderPolicyConfig(BaseModel):
+    enabled: bool = True
+    mode: str | None = None  # "fallback" / "always" / "disabled" for tavily
+
+
+class SearchPolicyConfig(BaseModel):
+    mode: str = "free_first"
+    paid_providers_enabled: bool = False
+    provider_priority: dict[str, list[str]] = {}
+    providers: dict[str, SearchProviderPolicyConfig] = {}
+
+
+class ServicePriorityConfig(BaseModel):
+    llm: LLMPriorityConfig = LLMPriorityConfig()
+    search_policy: SearchPolicyConfig = SearchPolicyConfig()
+
+
+class ServicePrioritySaveResponse(BaseModel):
+    success: bool
+    message: str
+
+
 # === Endpoints ===
 
 
@@ -314,7 +349,7 @@ async def save_cloud_llm_config(body: CloudLLMSaveRequest) -> CloudLLMSaveRespon
 @router.post("/llm/active-provider")
 async def set_active_provider(body: ActiveProviderRequest) -> ActiveProviderResponse:
     """设置当前默认 LLM provider。"""
-    valid_providers = {"ollama_lan", "deepseek", "openai", "openai_compatible"}
+    valid_providers = {"ollama_lan", "deepseek", "openai", "openai_compatible", "mock_llm"}
     if body.provider not in valid_providers:
         return ActiveProviderResponse(
             success=False,
@@ -329,6 +364,134 @@ async def set_active_provider(body: ActiveProviderRequest) -> ActiveProviderResp
             success=False,
             active_provider=get_settings().active_llm_provider,
         )
+
+
+# === Service Priority endpoints ===
+
+
+_VALID_LLM_PROVIDERS = {"deepseek", "ollama_lan", "openai", "openai_compatible", "mock_llm"}
+_VALID_SEARCH_PROVIDERS = {"tavily", "brave", "searxng", "open_library", "crossref", "arxiv", "wikipedia", "google_books"}
+_VALID_SEARCH_MODES = {"free_first", "balanced", "paid_enhanced"}
+
+
+@router.get("/service-priority")
+async def get_service_priority() -> dict:
+    """返回当前服务优先级配置。"""
+    runtime = _load_runtime_settings()
+    settings = _fresh_settings()
+
+    # LLM config
+    llm_rt = runtime.get("llm", {})
+    active_provider = runtime.get("active_provider", settings.active_llm_provider)
+    provider_priority = llm_rt.get("provider_priority", list(_VALID_LLM_PROVIDERS))
+    llm_providers = llm_rt.get("providers", {})
+
+    # Build providers status (don't expose API keys)
+    llm_providers_out = {}
+    for p in _VALID_LLM_PROVIDERS:
+        p_cfg = llm_providers.get(p, {})
+        llm_providers_out[p] = {"enabled": p_cfg.get("enabled", p == active_provider)}
+
+    # Search policy config
+    sp_rt = runtime.get("search_policy", {})
+    search_mode = sp_rt.get("mode", "free_first")
+    paid_enabled = sp_rt.get("paid_providers_enabled", False)
+    sp_priority = sp_rt.get("provider_priority", {
+        "web": ["searxng", "wikipedia", "brave", "tavily"],
+        "book": ["open_library", "google_books"],
+        "academic": ["crossref", "arxiv", "wikipedia"],
+        "general": ["searxng", "wikipedia", "open_library", "crossref", "tavily"],
+    })
+    sp_providers = sp_rt.get("providers", {})
+
+    search_providers_out = {}
+    for p in _VALID_SEARCH_PROVIDERS:
+        p_cfg = sp_providers.get(p, {})
+        out = {"enabled": p_cfg.get("enabled", True)}
+        if p == "tavily":
+            out["mode"] = p_cfg.get("mode", "fallback")
+        if p == "google_books":
+            out["public_mode"] = p_cfg.get("public_mode", True)
+        search_providers_out[p] = out
+
+    return {
+        "llm": {
+            "active_provider": active_provider,
+            "provider_priority": provider_priority,
+            "providers": llm_providers_out,
+        },
+        "search_policy": {
+            "mode": search_mode,
+            "paid_providers_enabled": paid_enabled,
+            "provider_priority": sp_priority,
+            "providers": search_providers_out,
+        },
+    }
+
+
+@router.post("/service-priority/save")
+async def save_service_priority(body: ServicePriorityConfig) -> ServicePrioritySaveResponse:
+    """保存服务优先级配置到 runtime_settings.json（merge 方式）。"""
+    # Validate LLM
+    if body.llm.active_provider not in _VALID_LLM_PROVIDERS:
+        return ServicePrioritySaveResponse(
+            success=False,
+            message=f"无效的 active_provider: {body.llm.active_provider}",
+        )
+
+    for p in body.llm.provider_priority:
+        if p not in _VALID_LLM_PROVIDERS:
+            return ServicePrioritySaveResponse(
+                success=False,
+                message=f"无效的 LLM provider: {p}",
+            )
+
+    # active_provider must be enabled
+    active_cfg = body.llm.providers.get(body.llm.active_provider)
+    if active_cfg and not active_cfg.enabled:
+        return ServicePrioritySaveResponse(
+            success=False,
+            message=f"active_provider '{body.llm.active_provider}' 必须为 enabled=true",
+        )
+
+    # Validate search mode
+    if body.search_policy.mode not in _VALID_SEARCH_MODES:
+        return ServicePrioritySaveResponse(
+            success=False,
+            message=f"无效的搜索模式: {body.search_policy.mode}",
+        )
+
+    # Validate search providers
+    for p in body.search_policy.providers:
+        if p not in _VALID_SEARCH_PROVIDERS:
+            return ServicePrioritySaveResponse(
+                success=False,
+                message=f"无效的 search provider: {p}",
+            )
+
+    try:
+        # Save LLM priority
+        llm_data = {
+            "active_provider": body.llm.active_provider,
+            "provider_priority": body.llm.provider_priority,
+            "providers": {k: v.model_dump() for k, v in body.llm.providers.items()},
+        }
+        save_runtime_settings("llm", llm_data)
+        save_runtime_settings("active_provider", body.llm.active_provider)
+
+        # Save search policy
+        sp_data = {
+            "mode": body.search_policy.mode,
+            "paid_providers_enabled": body.search_policy.paid_providers_enabled,
+            "provider_priority": body.search_policy.provider_priority,
+            "providers": {k: v.model_dump() for k, v in body.search_policy.providers.items()},
+        }
+        save_runtime_settings("search_policy", sp_data)
+
+        reset_settings()
+        return ServicePrioritySaveResponse(success=True, message="服务优先级配置已保存")
+    except Exception as e:
+        return ServicePrioritySaveResponse(success=False, message=f"保存失败: {e}")
 
 
 # --- General LLM test ---

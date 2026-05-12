@@ -5,22 +5,23 @@
 - 每个 provider 独立 try/except，单个失败不影响其他
 - 合并所有结果返回统一 SearchResult 列表
 - 不做评分、不做正文提取
+- 读取 runtime_settings.search_policy 决定 provider 启用和优先级
 """
 
 import asyncio
 import logging
 from typing import Any
 
-from core.config import get_settings
+from core.config import get_settings, _load_runtime_settings
 from models.schemas import ExpandedQuery
 from providers.search.base import BaseSearchProvider, SearchResult
 
 logger = logging.getLogger(__name__)
 
 
-# === 路由规则 ===
+# === 路由规则（默认，被 runtime_settings.search_policy.provider_priority 覆盖） ===
 
-_FREE_ROUTING: dict[str, list[str]] = {
+_DEFAULT_FREE_ROUTING: dict[str, list[str]] = {
     "web": ["searxng", "wikipedia"],
     "general": ["searxng", "wikipedia"],
     "legal": ["searxng", "wikipedia"],
@@ -32,6 +33,12 @@ _FREE_ROUTING: dict[str, list[str]] = {
 }
 
 _DEFAULT_ROUTE = ["searxng", "wikipedia"]
+
+
+def _load_search_policy() -> dict[str, Any]:
+    """从 runtime_settings.json 加载 search_policy 配置。"""
+    runtime = _load_runtime_settings()
+    return runtime.get("search_policy", {})
 
 
 class SearchRouter:
@@ -47,40 +54,68 @@ class SearchRouter:
 
     @staticmethod
     def _create_default_providers() -> dict[str, BaseSearchProvider]:
-        """根据配置创建所有可用的免费 Provider 实例。"""
+        """根据配置创建所有可用的 Provider 实例（受 search_policy 控制）。"""
         settings = get_settings()
+        policy = _load_search_policy()
+        policy_providers = policy.get("providers", {})
+        paid_enabled = policy.get("paid_providers_enabled", False)
+
         providers: dict[str, BaseSearchProvider] = {}
 
-        if settings.enable_searxng and settings.searxng_base_url:
+        # Free providers - check policy enabled status
+        def _is_enabled(name: str, default: bool = True) -> bool:
+            p_cfg = policy_providers.get(name, {})
+            if "enabled" in p_cfg:
+                return p_cfg["enabled"]
+            return default
+
+        if _is_enabled("searxng", settings.enable_searxng) and settings.searxng_base_url:
             from providers.search.searxng import SearXNGSearchProvider
             providers["searxng"] = SearXNGSearchProvider()
 
-        if settings.enable_open_library:
+        if _is_enabled("open_library", settings.enable_open_library):
             from providers.search.open_library import OpenLibrarySearchProvider
             providers["open_library"] = OpenLibrarySearchProvider()
 
-        if settings.enable_crossref:
+        if _is_enabled("crossref", settings.enable_crossref):
             from providers.search.crossref import CrossrefSearchProvider
             providers["crossref"] = CrossrefSearchProvider()
 
-        if settings.enable_arxiv:
+        if _is_enabled("arxiv", settings.enable_arxiv):
             from providers.search.arxiv import ArxivSearchProvider
             providers["arxiv"] = ArxivSearchProvider()
 
-        if settings.enable_wikipedia:
+        if _is_enabled("wikipedia", settings.enable_wikipedia):
             from providers.search.wikipedia import WikipediaSearchProvider
             providers["wikipedia"] = WikipediaSearchProvider()
 
-        # 付费 Provider（如果可用）
-        if settings.tavily_available:
-            from providers.search.tavily import TavilySearchProvider
-            providers["tavily"] = TavilySearchProvider()
+        # Paid providers - only if paid_providers_enabled or policy explicitly enables
+        tavily_cfg = policy_providers.get("tavily", {})
+        tavily_enabled = tavily_cfg.get("enabled", True)
+        tavily_mode = tavily_cfg.get("mode", "fallback")
 
-        if settings.brave_available:
+        if tavily_enabled and settings.tavily_available:
+            if paid_enabled or tavily_mode == "always":
+                from providers.search.tavily import TavilySearchProvider
+                providers["tavily"] = TavilySearchProvider()
+            elif tavily_mode == "fallback":
+                # Include but mark for fallback usage
+                from providers.search.tavily import TavilySearchProvider
+                providers["tavily"] = TavilySearchProvider()
+            else:
+                logger.info("tavily_skipped reason=paid_search_disabled mode=%s", tavily_mode)
+        elif tavily_enabled and not settings.tavily_available:
+            logger.debug("tavily_skipped reason=api_key_missing")
+        elif not tavily_enabled:
+            logger.debug("tavily_skipped reason=disabled_by_policy")
+
+        if _is_enabled("brave", settings.enable_brave) and settings.brave_available and paid_enabled:
             from providers.search.brave import BraveSearchProvider
             providers["brave"] = BraveSearchProvider()
+        elif _is_enabled("brave") and not paid_enabled:
+            logger.debug("brave_skipped reason=paid_search_disabled")
 
-        if settings.enable_google_books:
+        if _is_enabled("google_books", settings.enable_google_books):
             from providers.search.google_books import GoogleBooksSearchProvider
             providers["google_books"] = GoogleBooksSearchProvider()
 
@@ -91,8 +126,15 @@ class SearchRouter:
         return providers
 
     def _get_providers_for_hint(self, source_hint: str) -> list[BaseSearchProvider]:
-        """根据 source_hint 获取对应的 provider 列表。"""
-        route_names = _FREE_ROUTING.get(source_hint, _DEFAULT_ROUTE)
+        """根据 source_hint 获取对应的 provider 列表（使用 policy priority）。"""
+        policy = _load_search_policy()
+        policy_priority = policy.get("provider_priority", {})
+
+        # Use policy priority if available, otherwise default
+        route_names = policy_priority.get(source_hint)
+        if not route_names:
+            route_names = _DEFAULT_FREE_ROUTING.get(source_hint, _DEFAULT_ROUTE)
+
         providers = []
         for name in route_names:
             if name in self._providers:

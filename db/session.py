@@ -38,9 +38,21 @@ def get_session() -> Session:
 
 
 def init_db() -> None:
-    """创建所有表。"""
+    """创建所有表，并自动迁移缺失的列。"""
+    from db.migrate import migrate_db
     from db.tables import Base
 
+    settings = get_settings()
+
+    # 先迁移已有表（补齐新增列）
+    try:
+        changes = migrate_db(settings.database_url)
+        if changes:
+            logger.info("db_migration_applied changes=%d", len(changes))
+    except Exception as e:
+        logger.warning("db_migration_failed error=%s", str(e))
+
+    # 再创建不存在的表
     engine = get_engine()
     Base.metadata.create_all(engine)
     logger.info("db_tables_initialized")

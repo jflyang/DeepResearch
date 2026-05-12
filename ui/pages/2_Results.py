@@ -519,10 +519,10 @@ else:
             st.caption("研究索引包含：必读资料、图书资料、访谈资料、八卦线索等分类清单。")
     elif vault_configured:
         st.warning(f"⚠️ Vault 路径无效: `{vault_path}`")
-        st.page_link("pages/3_Settings.py", label="前往 Settings 配置 Vault", icon="⚙️")
+        st.page_link("pages/9_Settings.py", label="前往 Settings 配置 Vault", icon="⚙️")
     else:
         st.info("📁 Obsidian Vault 未配置，导出功能不可用。请先到 Settings 配置默认 Obsidian Vault。")
-        st.page_link("pages/3_Settings.py", label="前往 Settings 配置 Vault", icon="⚙️")
+        st.page_link("pages/9_Settings.py", label="前往 Settings 配置 Vault", icon="⚙️")
 
 st.divider()
 

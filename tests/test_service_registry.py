@@ -150,7 +150,6 @@ class TestRuntimeSettingsPriority:
                 assert ollama.configured is True
                 assert ollama.missing_keys == []
                 assert ollama.source == "runtime"
-                assert "runtime" in (ollama.message or "")
 
     def test_tavily_configured_from_runtime(self, registry: ServiceRegistry) -> None:
         """runtime_settings 中有 search.tavily.api_key 时 configured=true。"""

@@ -272,6 +272,24 @@ class APIClient:
 
     # === Report Ingestion ===
 
+    def get_service_priority(self) -> dict:
+        """获取服务优先级配置。"""
+        r = httpx.get(self._url("/settings/service-priority"), timeout=10.0)
+        r.raise_for_status()
+        return r.json()
+
+    def save_service_priority(self, payload: dict) -> dict:
+        """保存服务优先级配置。"""
+        r = httpx.post(
+            self._url("/settings/service-priority/save"),
+            json=payload,
+            timeout=10.0,
+        )
+        r.raise_for_status()
+        return r.json()
+
+    # === Report Ingestion ===
+
     def create_report_import_task(
         self,
         topic: str,

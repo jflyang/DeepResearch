@@ -26,7 +26,9 @@ class ServiceStatus(BaseModel):
     enabled: bool = True
     configured: bool = False
     available: bool = False
+    active: bool = False
     source: str = "default"  # "runtime" | "env" | "default" | "public_mode" | "local"
+    severity: str = "inactive"  # "ok" | "warning" | "inactive" | "error"
     missing_keys: list[str] = Field(default_factory=list)
     message: str | None = None
     api_key_configured: bool | None = None
@@ -209,12 +211,24 @@ class ServiceRegistry:
         if service_name in ("deepseek", "openai", "openai_compatible"):
             return self._get_cloud_llm_status(service_name, cfg, enabled, runtime)
 
+        # === 特殊处理：ollama_lan ===
+        if service_name == "ollama_lan":
+            return self._get_ollama_status(cfg, enabled, runtime)
+
         # === 通用逻辑：检查 runtime → env → missing ===
         missing_keys: list[str] = []
         source = "default"
         has_runtime_value = False
         has_env_value = False
         api_key_configured: bool | None = None
+
+        # Check search_policy for search providers
+        sp_rt = runtime.get("search_policy", {})
+        sp_providers = sp_rt.get("providers", {})
+        sp_provider_cfg = sp_providers.get(service_name, {})
+        # If search_policy explicitly disables this provider, override enabled
+        if svc_type == "search" and "enabled" in sp_provider_cfg:
+            enabled = sp_provider_cfg["enabled"]
 
         for var in required_env:
             runtime_has = self._has_runtime_value(service_name, var, runtime)
@@ -246,9 +260,21 @@ class ServiceRegistry:
         configured = len(missing_keys) == 0
         available = configured and enabled
 
+        # Determine severity
+        if not enabled:
+            # Disabled provider: severity=inactive regardless of missing config
+            severity = "inactive"
+        elif configured:
+            severity = "ok"
+        else:
+            # Enabled but missing config → warning
+            severity = "warning"
+
         # Build message
         message: str | None = None
-        if missing_keys and source == "default":
+        if not enabled:
+            message = "未启用"
+        elif missing_keys:
             message = f"缺少: {', '.join(missing_keys)}"
         elif configured:
             if source == "runtime":
@@ -262,7 +288,9 @@ class ServiceRegistry:
             enabled=enabled,
             configured=configured,
             available=available,
+            active=False,
             source=source,
+            severity=severity,
             missing_keys=missing_keys,
             message=message,
             api_key_configured=api_key_configured,
@@ -287,7 +315,9 @@ class ServiceRegistry:
             enabled=enabled,
             configured=True,
             available=available,
+            active=False,
             source="local",
+            severity="ok" if available else "error",
             missing_keys=[],
             message=message,
             api_key_configured=None,
@@ -313,7 +343,9 @@ class ServiceRegistry:
                 enabled=enabled,
                 configured=False,
                 available=False,
+                active=False,
                 source="default",
+                severity="warning" if enabled else "inactive",
                 missing_keys=["OBSIDIAN_VAULT_PATH"],
                 message="缺少: OBSIDIAN_VAULT_PATH",
                 api_key_configured=None,
@@ -330,7 +362,9 @@ class ServiceRegistry:
                 enabled=enabled,
                 configured=False,
                 available=False,
+                active=False,
                 source=source,
+                severity="warning",
                 missing_keys=[],
                 message=f"路径不存在: {vault_path}",
                 api_key_configured=None,
@@ -345,7 +379,9 @@ class ServiceRegistry:
                 enabled=enabled,
                 configured=False,
                 available=False,
+                active=False,
                 source=source,
+                severity="warning",
                 missing_keys=[],
                 message=f"路径不可写: {vault_path}",
                 api_key_configured=None,
@@ -360,7 +396,9 @@ class ServiceRegistry:
             enabled=enabled,
             configured=True,
             available=True,
+            active=False,
             source=source,
+            severity="ok",
             missing_keys=[],
             message=message,
             api_key_configured=None,
@@ -371,8 +409,30 @@ class ServiceRegistry:
     def _get_google_books_status(self, cfg: dict, enabled: bool, runtime: dict) -> ServiceStatus:
         """Google Books 支持 public_mode。"""
         gb_rt = runtime.get("search", {}).get("google_books", {})
-        public_mode = gb_rt.get("public_mode", cfg.get("public_mode", False))
+        # Also check search_policy
+        sp_rt = runtime.get("search_policy", {}).get("providers", {}).get("google_books", {})
+        if "enabled" in sp_rt:
+            enabled = sp_rt["enabled"]
+
+        public_mode = gb_rt.get("public_mode", sp_rt.get("public_mode", cfg.get("public_mode", False)))
         api_key = gb_rt.get("api_key", "") or os.environ.get("GOOGLE_BOOKS_API_KEY", "").strip()
+
+        if not enabled:
+            return ServiceStatus(
+                name="google_books",
+                type=cfg.get("type", "search"),
+                enabled=False,
+                configured=False,
+                available=False,
+                active=False,
+                source="default",
+                severity="inactive",
+                missing_keys=[],
+                message="未启用",
+                api_key_configured=None,
+                missing_env_vars=[],
+                note="未启用",
+            )
 
         if public_mode:
             source = "public_mode"
@@ -396,7 +456,9 @@ class ServiceRegistry:
             enabled=enabled,
             configured=configured,
             available=configured and enabled,
+            active=False,
             source=source,
+            severity="ok" if configured else "warning",
             missing_keys=[],
             message=message,
             api_key_configured=api_key_configured,
@@ -404,23 +466,98 @@ class ServiceRegistry:
             note=message,
         )
 
+    def _get_ollama_status(self, cfg: dict, enabled: bool, runtime: dict) -> ServiceStatus:
+        """Ollama LLM 服务状态 - 使用新的 severity 逻辑。"""
+        svc_type = cfg.get("type", "llm")
+        active_provider = runtime.get("active_provider", "")
+        llm_rt = runtime.get("llm", {})
+        llm_providers = llm_rt.get("providers", {})
+
+        # Check if explicitly enabled/disabled in llm.providers
+        provider_enabled = llm_providers.get("ollama_lan", {}).get("enabled", None)
+        if provider_enabled is not None:
+            is_enabled = provider_enabled
+        else:
+            is_enabled = enabled
+
+        is_active = (active_provider == "ollama_lan")
+
+        # Check configuration
+        has_base_url = bool(runtime.get("ollama", {}).get("base_url")) or env_has_value("OLLAMA_BASE_URL")
+        source = "runtime" if runtime.get("ollama", {}).get("base_url") else ("env" if env_has_value("OLLAMA_BASE_URL") else "default")
+
+        if is_active and has_base_url:
+            return ServiceStatus(
+                name="ollama_lan", type=svc_type, enabled=True, configured=True,
+                available=True, active=True, source=source, severity="ok",
+                missing_keys=[], message=f"当前使用，来源: {source}",
+                api_key_configured=None, missing_env_vars=[], note=f"当前使用，来源: {source}",
+            )
+        elif is_active and not has_base_url:
+            return ServiceStatus(
+                name="ollama_lan", type=svc_type, enabled=True, configured=False,
+                available=False, active=True, source="default", severity="warning",
+                missing_keys=["OLLAMA_BASE_URL"], message="当前 provider，缺少: OLLAMA_BASE_URL",
+                api_key_configured=None, missing_env_vars=["OLLAMA_BASE_URL"],
+                note="当前 provider，缺少: OLLAMA_BASE_URL",
+            )
+        elif not is_active and not is_enabled:
+            return ServiceStatus(
+                name="ollama_lan", type=svc_type, enabled=False, configured=False,
+                available=False, active=False, source="default", severity="inactive",
+                missing_keys=[], message="未启用",
+                api_key_configured=None, missing_env_vars=[], note="未启用",
+            )
+        elif not is_active and is_enabled and not has_base_url:
+            return ServiceStatus(
+                name="ollama_lan", type=svc_type, enabled=True, configured=False,
+                available=False, active=False, source="default", severity="warning",
+                missing_keys=["OLLAMA_BASE_URL"], message="已启用但缺少: OLLAMA_BASE_URL",
+                api_key_configured=None, missing_env_vars=["OLLAMA_BASE_URL"],
+                note="已启用但缺少: OLLAMA_BASE_URL",
+            )
+        else:
+            # not active, enabled, configured
+            return ServiceStatus(
+                name="ollama_lan", type=svc_type, enabled=True, configured=True,
+                available=True, active=False, source=source, severity="ok",
+                missing_keys=[], message="已配置（备用）",
+                api_key_configured=None, missing_env_vars=[], note="已配置（备用）",
+            )
+
     def _get_cloud_llm_status(self, service_name: str, cfg: dict, enabled: bool, runtime: dict) -> ServiceStatus:
         """云端 LLM 服务状态（deepseek/openai/openai_compatible）。
 
-        逻辑：
-        1. 检查 runtime.cloud_llm.provider 是否匹配当前服务名
-        2. 如果匹配且 enabled + api_key/base_url/default_model 都有 → configured
-        3. 如果不匹配（用户选了其他 provider）→ 显示"非当前 provider"而非"缺少 env"
-        4. 如果 cloud_llm 未启用 → 显示"云端 LLM 未启用"
-        5. Fallback 到 env 检查
+        新逻辑：
+        - active_provider + configured → severity=ok, active=true
+        - active_provider + not configured → severity=warning
+        - not active_provider + enabled=false → severity=inactive（不显示 ❌）
+        - not active_provider + enabled=true + not configured → severity=warning
+        - not active_provider + enabled=true + configured → severity=ok (standby)
         """
         svc_type = cfg.get("type", "llm")
         cloud_rt = runtime.get("cloud_llm", {})
-        active_provider = cloud_rt.get("provider", "")
+        # 读取新的 llm priority 配置
+        llm_rt = runtime.get("llm", {})
+        active_provider = runtime.get("active_provider", cloud_rt.get("provider", ""))
         cloud_enabled = cloud_rt.get("enabled", False)
 
+        # 检查 llm.providers 中的 enabled 状态
+        llm_providers = llm_rt.get("providers", {})
+        provider_enabled = llm_providers.get(service_name, {}).get("enabled", None)
+
+        # 如果 llm.providers 中有明确设置，使用它
+        if provider_enabled is not None:
+            is_enabled = provider_enabled
+        elif service_name == active_provider:
+            is_enabled = True
+        else:
+            is_enabled = cloud_enabled and (active_provider == service_name)
+
+        is_active = (active_provider == service_name)
+
         # 检查 runtime 中是否配置了此 provider
-        if active_provider == service_name and cloud_enabled:
+        if is_active and cloud_enabled:
             has_key = bool(cloud_rt.get("api_key"))
             has_url = bool(cloud_rt.get("base_url"))
             has_model = bool(cloud_rt.get("default_model"))
@@ -432,12 +569,14 @@ class ServiceRegistry:
                     enabled=True,
                     configured=True,
                     available=True,
+                    active=True,
                     source="runtime",
+                    severity="ok",
                     missing_keys=[],
-                    message="来源: runtime_settings.json",
+                    message="当前使用，来源: runtime_settings.json",
                     api_key_configured=True,
                     missing_env_vars=[],
-                    note="来源: runtime_settings.json",
+                    note="当前使用，来源: runtime_settings.json",
                 )
             else:
                 # 部分配置
@@ -454,12 +593,14 @@ class ServiceRegistry:
                     enabled=True,
                     configured=False,
                     available=False,
+                    active=True,
                     source="runtime",
+                    severity="warning",
                     missing_keys=missing,
-                    message=f"部分配置，缺少: {', '.join(missing)}",
+                    message=f"当前 provider，缺少: {', '.join(missing)}",
                     api_key_configured=has_key,
                     missing_env_vars=missing,
-                    note=f"部分配置，缺少: {', '.join(missing)}",
+                    note=f"当前 provider，缺少: {', '.join(missing)}",
                 )
 
         # Fallback: 检查 .env 中是否有对应变量
@@ -467,8 +608,8 @@ class ServiceRegistry:
         from app.core.feature_flags import env_has_value as _env_has
         missing_env = [var for var in required_env if not _env_has(var)]
 
-        if not missing_env:
-            # .env 中有完整配置
+        if not missing_env and is_active:
+            # .env 中有完整配置且是 active
             api_key_configured = any(
                 _env_has(var) for var in required_env
                 if "key" in var.lower()
@@ -476,60 +617,86 @@ class ServiceRegistry:
             return ServiceStatus(
                 name=service_name,
                 type=svc_type,
-                enabled=enabled,
+                enabled=True,
                 configured=True,
-                available=enabled,
+                available=True,
+                active=True,
                 source="env",
+                severity="ok",
                 missing_keys=[],
-                message="来源: .env",
+                message="当前使用，来源: .env",
                 api_key_configured=api_key_configured or None,
                 missing_env_vars=[],
-                note="来源: .env",
+                note="当前使用，来源: .env",
             )
 
-        # 用户选了其他 provider，此服务不需要配置
-        if active_provider and active_provider != service_name:
+        # 非当前 provider 且未启用 → inactive（不是 error）
+        if not is_active and not is_enabled:
             return ServiceStatus(
                 name=service_name,
                 type=svc_type,
                 enabled=False,
                 configured=False,
                 available=False,
+                active=False,
                 source="default",
+                severity="inactive",
                 missing_keys=[],
-                message=f"非当前 provider（当前: {active_provider}）",
+                message="未启用",
                 api_key_configured=None,
                 missing_env_vars=[],
-                note=f"非当前 provider（当前: {active_provider}）",
+                note="未启用",
             )
 
-        # cloud_llm 未启用或未配置 — 不显示大量 missing env vars
-        if not cloud_enabled:
+        # 非当前 provider 但 enabled=true 且缺配置 → warning
+        if not is_active and is_enabled and missing_env:
             return ServiceStatus(
                 name=service_name,
                 type=svc_type,
-                enabled=False,
+                enabled=True,
                 configured=False,
                 available=False,
+                active=False,
                 source="default",
-                missing_keys=[],
-                message="云端 LLM 未启用",
-                api_key_configured=None,
-                missing_env_vars=[],
-                note="云端 LLM 未启用",
+                severity="warning",
+                missing_keys=missing_env,
+                message=f"已启用但缺少: {', '.join(missing_env)}",
+                api_key_configured=False,
+                missing_env_vars=missing_env,
+                note=f"已启用但缺少: {', '.join(missing_env)}",
             )
 
-        # cloud_llm 已启用但此 provider 未配置
+        # 非当前 provider 但 enabled=true 且配置完整 → ok (standby)
+        if not is_active and is_enabled and not missing_env:
+            return ServiceStatus(
+                name=service_name,
+                type=svc_type,
+                enabled=True,
+                configured=True,
+                available=True,
+                active=False,
+                source="env",
+                severity="ok",
+                missing_keys=[],
+                message="已配置（备用）",
+                api_key_configured=True,
+                missing_env_vars=[],
+                note="已配置（备用）",
+            )
+
+        # Default fallback
         return ServiceStatus(
             name=service_name,
             type=svc_type,
-            enabled=enabled,
+            enabled=is_enabled,
             configured=False,
             available=False,
+            active=False,
             source="default",
-            missing_keys=missing_env,
-            message=f"缺少: {', '.join(missing_env)}",
-            api_key_configured=False,
-            missing_env_vars=missing_env,
-            note=f"缺少: {', '.join(missing_env)}",
+            severity="inactive",
+            missing_keys=[],
+            message="未启用",
+            api_key_configured=None,
+            missing_env_vars=[],
+            note="未启用",
         )
