@@ -165,8 +165,8 @@ class TestResearchPackageStructure:
         assert len(md_files) == 2
 
     @pytest.mark.asyncio
-    async def test_generates_filtered_noise(self, task, sources, mock_extraction_service, tmp_path):
-        """生成 filtered_noise.md。"""
+    async def test_no_filtered_noise_file(self, task, sources, mock_extraction_service, tmp_path):
+        """不生成 filtered_noise.md（精简输出）。"""
         policy = _default_policy()
         policy["auto_analyze"]["enabled"] = False
 
@@ -179,10 +179,7 @@ class TestResearchPackageStructure:
         await service.run(task=task, sources=sources, vault_path=tmp_path)
 
         noise_path = tmp_path / "Research" / "Tim_Cook_童年故事" / "filtered_noise.md"
-        assert noise_path.exists()
-        content = noise_path.read_text(encoding="utf-8")
-        assert "被过滤" in content
-        assert "Random Celebrity Gossip" in content
+        assert not noise_path.exists()
 
     @pytest.mark.asyncio
     async def test_generates_trace_summary(self, task, sources, mock_extraction_service, tmp_path):

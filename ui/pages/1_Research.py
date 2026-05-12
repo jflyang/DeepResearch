@@ -63,14 +63,17 @@ def get_event_icon(event: dict) -> str:
 
 
 def format_trace_event(event: dict) -> str:
-    """格式化单条 trace 事件为显示文本。"""
+    """格式化单条 trace 事件为显示文本（中文可读）。"""
     icon = get_event_icon(event)
     step = event.get("step", "unknown")
     message = event.get("message", "")
     duration = event.get("duration_ms")
     provider = event.get("provider")
 
-    parts = [f"{icon} **{step}**"]
+    # 步骤中文翻译
+    step_zh = _STEP_ZH_MAP.get(step, step)
+
+    parts = [f"{icon} **{step_zh}**"]
     if message:
         parts.append(f"— {message}")
     if duration:
@@ -79,6 +82,39 @@ def format_trace_event(event: dict) -> str:
         parts.append(f"[{provider}]")
 
     return " ".join(parts)
+
+
+# 步骤名称中文映射
+_STEP_ZH_MAP = {
+    "task_created": "任务已创建",
+    "llm_plan_created": "AI 能力规划完成",
+    "language_planning_finished": "语言规划完成",
+    "llm_call_started": "正在调用 AI",
+    "llm_call_finished": "AI 调用完成",
+    "llm_call_failed": "AI 调用失败",
+    "query_expansion_finished": "搜索词扩展完成",
+    "search_provider_started": "正在搜索",
+    "search_provider_finished": "搜索完成",
+    "search_provider_failed": "搜索失败",
+    "dedupe_finished": "去重完成",
+    "scoring_finished": "来源评分完成",
+    "task_completed": "研究完成",
+    "task_failed": "研究失败",
+    "auto_fetch_started": "开始自动抓取正文",
+    "auto_fetch_source_started": "正在抓取来源",
+    "auto_fetch_source_finished": "来源抓取成功",
+    "auto_fetch_source_failed": "来源抓取失败",
+    "auto_fetch_finished": "自动抓取完成",
+    "auto_analysis_started": "开始 AI 分析正文",
+    "auto_analysis_finished": "AI 分析完成",
+    "auto_export_started": "开始导出到 Obsidian",
+    "auto_export_finished": "导出完成",
+    "auto_export_failed": "导出失败",
+    "task_enqueued": "任务已加入队列",
+    "task_dequeued": "任务开始执行",
+    "task_queue_completed": "队列任务完成",
+    "task_queue_failed": "队列任务失败",
+}
 
 
 def should_continue_polling(task_status: str) -> bool:
@@ -127,12 +163,15 @@ def summarize_completed_task(trace_summary: dict) -> dict:
 STEP_LABELS = {
     "pending": "等待开始",
     "task_created": "任务已创建",
-    "language_planning": "语言规划",
-    "query_expansion": "Query 扩展",
-    "search": "搜索中",
-    "dedupe": "去重",
-    "scoring": "来源评分",
-    "db_save": "保存数据库",
+    "language_planning": "正在规划搜索语言",
+    "query_expansion": "正在扩展搜索词",
+    "search": "正在搜索资料",
+    "dedupe": "正在去重",
+    "scoring": "正在评估来源质量",
+    "db_save": "正在保存结果",
+    "auto_fetch": "正在抓取正文",
+    "auto_analyze": "正在 AI 分析",
+    "auto_export": "正在导出到 Obsidian",
     "completed": "已完成",
     "failed": "失败",
 }

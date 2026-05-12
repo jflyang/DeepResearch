@@ -507,25 +507,7 @@ class AutoFetchExportService:
                 )
                 result.index_path = str(index_path)
 
-            # 4. 导出 cards/*.md（人物、地点、概念、故事点、待核验）
-            if extracted_docs:
-                from services.card_export_service import export_research_cards
-                try:
-                    card_count = export_research_cards(
-                        task=task,
-                        sources=all_sources,
-                        extracted_docs=extracted_docs,
-                        vault_path=vault_path,
-                        synthesis=synthesis,
-                    )
-                    logger.info("cards_exported task_id=%s count=%d", task.id, card_count)
-                except Exception as e:
-                    logger.warning("card_export_failed task_id=%s error=%s", task.id, str(e)[:100])
-
-            # 5. 导出 filtered_noise.md（可选）
-            self._export_filtered_noise(task, all_sources, extracted_docs, vault_path)
-
-            # 6. 导出 trace_summary.md（可选）
+            # 4. 导出 trace_summary.md
             self._export_trace_summary(task, result, vault_path)
 
             result.exported = True

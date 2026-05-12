@@ -121,20 +121,6 @@ async def export_index(task_id: str):
                 vault_path=vault,
                 synthesis=synthesis,
             )
-
-            # 导出 cards/*.md
-            if docs_map:
-                from services.card_export_service import export_research_cards
-                try:
-                    export_research_cards(
-                        task=task,
-                        sources=sources,
-                        extracted_docs=docs_map,
-                        vault_path=vault,
-                        synthesis=synthesis,
-                    )
-                except Exception as e:
-                    logger.warning("card_export_failed task_id=%s error=%s", task_id, str(e)[:100])
     except ResearchError as e:
         raise HTTPException(status_code=400, detail=e.message)
 

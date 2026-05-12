@@ -31,7 +31,7 @@ tags:
 
 {% if must_read %}
 {% for item in must_read %}
-- [[{{ item.filename }}|{{ item.title }}]] ({{ item.level }})
+- [{{ item.title }}]({{ item.url }}) ({{ item.level }})
   - {{ item.reason }}
 {% endfor %}
 {% else %}
@@ -42,7 +42,7 @@ tags:
 
 {% if books %}
 {% for item in books %}
-### {{ item.title }}
+### [{{ item.title }}]({{ item.url }})
 
 - 中文名：{{ item.title_zh if item.title_zh else "待翻译" }}
 - 作者：{{ item.author if item.author else "未知" }}
@@ -66,7 +66,7 @@ tags:
 
 {% if interviews %}
 {% for item in interviews %}
-- [[{{ item.filename }}|{{ item.title }}]] — {{ item.reason }}
+- [{{ item.title }}]({{ item.url }}) — {{ item.reason }}
 {% endfor %}
 {% else %}
 （暂无访谈资料）
@@ -76,7 +76,7 @@ tags:
 
 {% if gossip %}
 {% for item in gossip %}
-- [[{{ item.filename }}|{{ item.title }}]] ({{ item.level }}) — {{ item.reason }}
+- [{{ item.title }}]({{ item.url }}) ({{ item.level }}) — {{ item.reason }}
 {% endfor %}
 {% else %}
 （暂无八卦与旁证）
@@ -86,7 +86,7 @@ tags:
 
 {% if people %}
 {% for person in people %}
-- [[{{ person.name }}]] — {{ person.role }}
+- {{ person.name }} — {{ person.role }}
 {% endfor %}
 {% else %}
 （待提取正文后补充）
@@ -106,7 +106,7 @@ tags:
 
 {% if concepts %}
 {% for concept in concepts %}
-- [[{{ concept }}]]
+- {{ concept }}
 {% endfor %}
 {% else %}
 （待提取正文后补充）
@@ -141,16 +141,6 @@ tags:
 {% endfor %}
 {% else %}
 （暂无待核验信息）
-{% endif %}
-
-## 被过滤噪音概览
-
-{% if filtered_noise_summary %}
-{% for noise in filtered_noise_summary %}
-- {{ noise }}
-{% endfor %}
-{% else %}
-（无明显噪音来源）
 {% endif %}
 
 ## 下一步深挖方向

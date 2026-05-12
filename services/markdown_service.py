@@ -213,6 +213,7 @@ def export_research_index(
         entry = {
             "filename": sanitize_filename(item.title),
             "title": item.title,
+            "url": item.url,
             "level": item.source_level.value,
             "reason": item.reason_to_read,
             "author": "",

@@ -289,6 +289,35 @@ def _render_llm_usage(task_id: str, api_client: APIClient):
 
 def _render_trace_view(task_id: str, api_client: APIClient):
     """渲染执行流程 / Trace 视图。"""
+
+    # 步骤中文映射
+    _step_zh = {
+        "task_created": "任务已创建",
+        "llm_plan_created": "AI 能力规划完成",
+        "language_planning_finished": "语言规划完成",
+        "llm_call_started": "正在调用 AI",
+        "llm_call_finished": "AI 调用完成",
+        "llm_call_failed": "AI 调用失败",
+        "query_expansion_finished": "搜索词扩展完成",
+        "search_provider_started": "正在搜索",
+        "search_provider_finished": "搜索完成",
+        "search_provider_failed": "搜索失败",
+        "dedupe_finished": "去重完成",
+        "scoring_finished": "来源评分完成",
+        "task_completed": "研究完成",
+        "task_failed": "研究失败",
+        "auto_fetch_started": "开始自动抓取正文",
+        "auto_fetch_source_started": "正在抓取来源",
+        "auto_fetch_source_finished": "来源抓取成功",
+        "auto_fetch_source_failed": "来源抓取失败",
+        "auto_fetch_finished": "自动抓取完成",
+        "auto_analysis_started": "开始 AI 分析",
+        "auto_analysis_finished": "AI 分析完成",
+        "auto_export_started": "开始导出到 Obsidian",
+        "auto_export_finished": "导出完成",
+        "auto_export_failed": "导出失败",
+    }
+
     try:
         summary = api_client.get_trace_summary(task_id)
     except Exception as e:
@@ -353,7 +382,7 @@ def _render_trace_view(task_id: str, api_client: APIClient):
         evt_duration = event.get("duration_ms")
         provider = event.get("provider")
 
-        line_parts = [f"{icon} **{step}**"]
+        line_parts = [f"{icon} **{_step_zh.get(step, step)}**"]
         if message:
             line_parts.append(f"— {message}")
         if evt_duration:

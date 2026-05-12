@@ -130,29 +130,30 @@ class TestOverviewWrittenToIndex:
 
 
 class TestFilteredNoiseSummaryWritten:
-    """filtered_noise_summary 写入 index.md。"""
+    """filtered_noise_summary 不再写入 index.md（精简输出）。"""
 
-    def test_filtered_noise_in_index(self, task, sources, synthesis, tmp_path):
-        """被过滤噪音概览出现在 index.md 中。"""
+    def test_no_filtered_noise_section(self, task, sources, synthesis, tmp_path):
+        """index.md 不再包含被过滤噪音概览部分。"""
         path = export_research_index(
             task, sources, {},
             vault_path=tmp_path,
             synthesis=synthesis,
         )
         content = path.read_text(encoding="utf-8")
-        assert "被过滤噪音概览" in content
-        assert "Python NLP Cookbook" in content
-        assert "Jamie Oliver" in content
+        # 精简后不再有噪音概览
+        assert "被过滤噪音概览" not in content
 
-    def test_filtered_books_passed_directly(self, task, sources, tmp_path):
-        """直接传入的 filtered_books 也能写入。"""
+    def test_index_still_has_core_sections(self, task, sources, synthesis, tmp_path):
+        """index.md 仍有核心部分。"""
         path = export_research_index(
             task, sources, {},
             vault_path=tmp_path,
-            filtered_books=["Gourmet Cooking for Dummies（烹饪书）"],
+            synthesis=synthesis,
         )
         content = path.read_text(encoding="utf-8")
-        assert "Gourmet Cooking" in content
+        assert "研究概览" in content
+        assert "必读资料" in content
+        assert "下一步深挖方向" in content
 
 
 class TestBookSourcesStructured:
