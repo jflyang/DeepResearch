@@ -45,6 +45,7 @@ def test_task_table_columns():
         "expanded_queries", "error_message", "source_count",
         "exported", "export_path", "metadata_json",
         "created_at", "updated_at", "completed_at",
+        "deleted_at", "renamed_at", "cloned_from_task_id",
     }
     assert expected_columns == columns
 

@@ -386,6 +386,34 @@ if cloud_form_submitted:
         except Exception as e:
             st.error(f"保存请求失败：{e}")
 
+# 测试云端 LLM 连接
+if _cloud_enabled and _cloud_api_key_configured:
+    if st.button("🔍 测试云端 LLM 连接", key="test_cloud_llm_btn"):
+        with st.spinner("正在测试连接..."):
+            try:
+                # 从 runtime_settings 读取已保存的 API key
+                import json
+                from pathlib import Path
+                _rt_path = Path("config/runtime_settings.json")
+                _rt_data = json.loads(_rt_path.read_text()) if _rt_path.exists() else {}
+                _saved_key = _rt_data.get("cloud_llm", {}).get("api_key", "")
+
+                if not _saved_key:
+                    st.error("❌ 未找到已保存的 API Key，请先保存配置")
+                else:
+                    result = client.test_cloud_llm_connection(
+                        provider=_cloud_provider,
+                        base_url=_cloud_base_url,
+                        api_key=_saved_key,
+                        model=_cloud_model,
+                    )
+                    if result.get("reachable"):
+                        st.success(f"✅ 云端 LLM 可达（延迟 {result.get('latency_ms', '?')}ms）")
+                    else:
+                        st.error(f"❌ 连接失败：{result.get('error', '未知错误')}")
+            except Exception as e:
+                st.error(f"测试请求失败：{e}")
+
 st.divider()
 
 # ============================================================

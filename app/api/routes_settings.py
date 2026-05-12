@@ -348,7 +348,7 @@ async def save_cloud_llm_config(body: CloudLLMSaveRequest) -> CloudLLMSaveRespon
 
 @router.post("/llm/active-provider")
 async def set_active_provider(body: ActiveProviderRequest) -> ActiveProviderResponse:
-    """设置当前默认 LLM provider。"""
+    """设置当前默认 LLM provider。同时确保该 provider 在 llm.providers 中启用。"""
     valid_providers = {"ollama_lan", "deepseek", "openai", "openai_compatible", "mock_llm"}
     if body.provider not in valid_providers:
         return ActiveProviderResponse(
@@ -356,7 +356,26 @@ async def set_active_provider(body: ActiveProviderRequest) -> ActiveProviderResp
             active_provider=get_settings().active_llm_provider,
         )
     try:
+        # 保存 active_provider
         save_runtime_settings("active_provider", body.provider)
+
+        # 同步更新 llm.providers：启用新 provider，禁用旧 provider
+        from core.config import _load_runtime_settings
+        runtime = _load_runtime_settings()
+        llm_data = runtime.get("llm", {})
+        providers = llm_data.get("providers", {})
+
+        # 确保新 active provider 被启用
+        if body.provider not in providers:
+            providers[body.provider] = {"enabled": True}
+        else:
+            providers[body.provider]["enabled"] = True
+
+        # 更新 llm section
+        llm_data["active_provider"] = body.provider
+        llm_data["providers"] = providers
+        save_runtime_settings("llm", llm_data)
+
         reset_settings()
         return ActiveProviderResponse(success=True, active_provider=body.provider)
     except Exception:

@@ -412,3 +412,89 @@ def export_report_ingestion_index(
     write_file(index_path, content)
     logger.info("report_ingestion_index_exported task_id=%s path=%s", task.id, index_path)
     return index_path
+
+
+# === LLM 增强导出功能 ===
+
+
+async def generate_markdown_summary(
+    title: str,
+    content: str,
+    topic: str,
+    level: str = "B",
+    ai_gateway=None,
+) -> str:
+    """使用 LLM 生成来源摘要。失败时返回简单截取摘要。"""
+    if not ai_gateway:
+        return content[:200] + "..." if len(content) > 200 else content
+
+    try:
+        result = await ai_gateway.run_text(
+            task_name="markdown_summary_generation",
+            payload={
+                "topic": topic,
+                "title": title,
+                "level": level,
+                "content": content[:8000],
+            },
+            language="zh",
+        )
+        return result.strip() if result else content[:200]
+    except Exception as e:
+        logger.warning("markdown_summary_generation_failed title=%s error=%s", title[:50], str(e)[:100])
+        return content[:200] + "..." if len(content) > 200 else content
+
+
+async def generate_index_synthesis(
+    topic: str,
+    mode: str,
+    sources: list[SourceItem],
+    ai_gateway=None,
+) -> str:
+    """使用 LLM 生成研究概览。失败时返回规则生成的概览。"""
+    if not ai_gateway:
+        return _rule_based_index_synthesis(topic, mode, sources)
+
+    top_sources = [
+        {
+            "title": s.title[:80],
+            "level": s.source_level.value,
+            "reason": s.reason_to_read,
+        }
+        for s in sources
+        if s.source_level.value in ("S", "A")
+    ][:10]
+
+    high_quality_count = len([s for s in sources if s.source_level.value in ("S", "A")])
+
+    try:
+        result = await ai_gateway.run_text(
+            task_name="final_index_synthesis",
+            payload={
+                "topic": topic,
+                "mode": mode,
+                "total_sources": len(sources),
+                "high_quality_count": high_quality_count,
+                "top_sources": top_sources,
+            },
+            language="zh",
+        )
+        return result.strip() if result else _rule_based_index_synthesis(topic, mode, sources)
+    except Exception as e:
+        logger.warning("final_index_synthesis_failed topic=%s error=%s", topic[:50], str(e)[:100])
+        return _rule_based_index_synthesis(topic, mode, sources)
+
+
+def _rule_based_index_synthesis(topic: str, mode: str, sources: list[SourceItem]) -> str:
+    """规则生成的研究概览（fallback）。"""
+    total = len(sources)
+    high_quality = len([s for s in sources if s.source_level.value in ("S", "A")])
+    books = len([s for s in sources if s.source_type.value == "book"])
+
+    return f"""## 研究概览
+
+本次研究围绕「{topic}」展开（模式：{mode}），共收集 {total} 条来源。
+其中高质量来源（S/A 级）{high_quality} 条，图书资料 {books} 条。
+
+建议优先阅读 S/A 级来源，提取正文后进行深度分析。
+"""

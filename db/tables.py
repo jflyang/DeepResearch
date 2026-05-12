@@ -51,6 +51,9 @@ class TaskTable(Base):
     created_at: Mapped[datetime] = mapped_column(DateTime, default=_utcnow)
     updated_at: Mapped[datetime] = mapped_column(DateTime, default=_utcnow, onupdate=_utcnow)
     completed_at: Mapped[datetime | None] = mapped_column(DateTime, nullable=True, default=None)
+    deleted_at: Mapped[datetime | None] = mapped_column(DateTime, nullable=True, default=None)
+    renamed_at: Mapped[datetime | None] = mapped_column(DateTime, nullable=True, default=None)
+    cloned_from_task_id: Mapped[str] = mapped_column(String(36), default="")
 
 
 class QueryTable(Base):

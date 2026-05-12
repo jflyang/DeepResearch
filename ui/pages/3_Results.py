@@ -41,7 +41,7 @@ def get_source_origin_label(origin: str) -> str:
     return labels.get(origin, origin)
 
 
-def _render_source_list(items: list[dict], api_client: APIClient, show_origin: bool = False):
+def _render_source_list(items: list[dict], api_client: APIClient, show_origin: bool = False, key_prefix: str = ""):
     """渲染来源列表。"""
     if not items:
         st.info("暂无来源。")
@@ -87,7 +87,7 @@ def _render_source_list(items: list[dict], api_client: APIClient, show_origin: b
                               (f" | 八卦: {gossip:.2f}" if gossip > 0 else ""))
             with action_col:
                 if dl_status == "pending":
-                    if st.button("📥 提取", key=f"extract_{item['id']}"):
+                    if st.button("📥 提取", key=f"{key_prefix}extract_{item['id']}"):
                         with st.spinner("提取中..."):
                             try:
                                 result = api_client.extract_source(item["id"])
@@ -143,8 +143,34 @@ def _render_index_preview(task: dict, items: list[dict]):
     st.markdown(preview)
 
 
+def _render_llm_task_line(task_info: dict, status_badges: dict):
+    """渲染单条 LLM 任务状态行。"""
+    status = task_info.get("status", "unknown")
+    badge = status_badges.get(status, "❓")
+    task_name = task_info.get("task_name", "?")
+    stage = task_info.get("stage", "")
+    line = f"{badge} **{task_name}** ({stage})"
+
+    if status == "used_llm":
+        provider = task_info.get("provider", "")
+        model = task_info.get("model", "")
+        duration = task_info.get("duration_ms")
+        input_c = task_info.get("input_chars")
+        output_c = task_info.get("output_chars")
+        details = f"{provider}/{model}"
+        if duration:
+            details += f" {duration}ms"
+        if input_c and output_c:
+            details += f" ({input_c}→{output_c} chars)"
+        line += f" — {details}"
+    elif status == "fallback":
+        fallback = task_info.get("fallback_name", "")
+        line += f" — fallback: {fallback}"
+    st.markdown(line)
+
+
 def _render_llm_usage(task_id: str, api_client: APIClient):
-    """渲染 LLM 使用情况区域。"""
+    """渲染 LLM 使用情况区域（分组展示）。"""
     try:
         llm_data = api_client.get_trace_llm(task_id)
     except Exception as e:
@@ -162,34 +188,64 @@ def _render_llm_usage(task_id: str, api_client: APIClient):
         "used_llm": "✅", "fallback": "🔁", "skipped_not_reached": "⏭️",
         "skipped_disabled": "🚫", "skipped_not_implemented": "🧩",
         "skipped_missing_prompt": "⚠️", "rule_only": "⚙️",
+        "covered_by": "🔗", "waiting": "⏳",
     }
 
+    # 分组
+    groups = {
+        "executed": [],
+        "covered": [],
+        "waiting": [],
+        "export": [],
+        "disabled": [],
+        "planned": [],
+    }
     for task_info in llm_tasks:
-        status = task_info.get("status", "unknown")
-        badge = status_badges.get(status, "❓")
-        task_name = task_info.get("task_name", "?")
-        stage = task_info.get("stage", "")
-        line = f"{badge} **{task_name}** ({stage})"
+        group = task_info.get("group", "executed")
+        if group not in groups:
+            groups[group] = []
+        groups[group].append(task_info)
 
-        if status == "used_llm":
-            provider = task_info.get("provider", "")
-            model = task_info.get("model", "")
-            duration = task_info.get("duration_ms")
-            input_c = task_info.get("input_chars")
-            output_c = task_info.get("output_chars")
-            details = f"{provider}/{model}"
-            if duration:
-                details += f" {duration}ms"
-            if input_c and output_c:
-                details += f" ({input_c}→{output_c} chars)"
-            line += f" — {details}"
-        elif status == "fallback":
-            fallback = task_info.get("fallback_name", "")
-            line += f" — fallback: {fallback}"
-        elif status in ("skipped_disabled", "skipped_not_reached", "skipped_not_implemented"):
-            reason = task_info.get("skipped_reason", "")
-            line += f" — {reason}"
-        st.markdown(line)
+    # 本次已执行
+    if groups["executed"]:
+        st.markdown("**本次已执行：**")
+        for task_info in groups["executed"]:
+            _render_llm_task_line(task_info, status_badges)
+
+    # 由其他任务覆盖
+    if groups["covered"]:
+        for task_info in groups["covered"]:
+            covered = task_info.get("covered_by", "")
+            st.caption(f"🔗 **{task_info['task_name']}** — 由 {covered} 覆盖")
+
+    # 等待后续阶段
+    if groups["waiting"]:
+        st.markdown("**等待后续阶段：**")
+        for task_info in groups["waiting"]:
+            wait = task_info.get("wait_for", "")
+            st.caption(f"⏳ **{task_info['task_name']}** ({task_info.get('stage', '')}) — 等待{wait}")
+
+    # 导出阶段
+    if groups["export"]:
+        st.markdown("**导出阶段：**")
+        for task_info in groups["export"]:
+            status = task_info.get("status", "")
+            if status == "used_llm":
+                _render_llm_task_line(task_info, status_badges)
+            else:
+                st.caption(f"📤 **{task_info['task_name']}** — 导出时触发")
+
+    # 已禁用
+    if groups["disabled"]:
+        with st.expander(f"🚫 已禁用 ({len(groups['disabled'])})", expanded=False):
+            for task_info in groups["disabled"]:
+                st.caption(f"🚫 **{task_info['task_name']}** — {task_info.get('skipped_reason', '')}")
+
+    # 规划中
+    if groups["planned"]:
+        with st.expander(f"🧩 规划中能力 ({len(groups['planned'])})", expanded=False):
+            for task_info in groups["planned"]:
+                st.caption(f"🧩 **{task_info['task_name']}** ({task_info.get('stage', '')}) — 规划中")
 
     rule_steps = llm_data.get("rule_only_steps", [])
     if rule_steps:
@@ -303,35 +359,41 @@ with st.sidebar:
         key="history_status",
     )
 
-    if st.button("🔄 刷新列表", key="refresh_history"):
-        pass  # 触发 rerun
+    col_refresh, col_deleted = st.columns(2)
+    with col_refresh:
+        if st.button("🔄 刷新", key="refresh_history", use_container_width=True):
+            pass  # 触发 rerun
+    with col_deleted:
+        show_deleted = st.checkbox("显示已删除", key="show_deleted_tasks")
 
     # 获取任务列表
     try:
         status_filter = history_status if history_status != "全部" else None
         q_filter = history_q if history_q else None
-        tasks_data = client.list_tasks(limit=30, status=status_filter, q=q_filter)
+        tasks_data = client.list_tasks(limit=30, status=status_filter, q=q_filter, include_deleted=show_deleted)
         history_tasks = tasks_data.get("items", [])
     except Exception:
         history_tasks = []
 
     if history_tasks:
         for ht in history_tasks:
+            is_deleted = ht.get("deleted_at") is not None
             status_icon = {"completed": "✅", "running": "⏳", "pending": "🕐", "failed": "❌"}.get(ht["status"], "❓")
+            if is_deleted:
+                status_icon = "🗑️"
             topic_short = ht["topic"][:25] + ("..." if len(ht["topic"]) > 25 else "")
             source_info = f"{ht.get('source_count', 0)} sources"
             hq = ht.get("high_quality_count", 0)
             if hq:
                 source_info += f" · {hq} S/A"
             export_badge = " · 📤" if ht.get("exported") else ""
+            cloned_badge = " · 📋" if ht.get("cloned_from_task_id") else ""
             time_str = (ht.get("created_at") or "")[:10]
-
-            label = f"{status_icon} **{topic_short}**\n{source_info}{export_badge} · {time_str}"
 
             if st.button(
                 f"{status_icon} {topic_short}",
                 key=f"hist_{ht['task_id']}",
-                help=f"{ht['topic']} | {ht['status']} | {source_info}",
+                help=f"{ht['topic']} | {ht['status']} | {source_info}{cloned_badge}",
                 use_container_width=True,
             ):
                 st.session_state["selected_task_id"] = ht["task_id"]
@@ -385,6 +447,84 @@ col4.markdown(f"**完成**: {(task.get('completed_at') or '—')[:16]}")
 
 if status != "completed":
     st.warning(f"任务状态为 `{status}`，结果可能不完整。")
+
+# === 任务管理操作 ===
+
+with st.expander("🛠️ 任务管理", expanded=False):
+    mgmt_col1, mgmt_col2, mgmt_col3 = st.columns(3)
+
+    # 重命名
+    with mgmt_col1:
+        st.markdown("**✏️ 重命名**")
+        new_topic = st.text_input(
+            "新主题名称",
+            value=task["topic"],
+            key="rename_topic_input",
+            label_visibility="collapsed",
+        )
+        if st.button("保存名称", key="btn_rename"):
+            if new_topic.strip() and new_topic.strip() != task["topic"]:
+                try:
+                    result = client.rename_task(task_id, new_topic.strip())
+                    st.success(f"✅ {result.get('message', '已重命名')}")
+                    st.rerun()
+                except Exception as e:
+                    st.error(f"重命名失败: {e}")
+            elif not new_topic.strip():
+                st.warning("主题名称不能为空")
+
+    # 复制重跑
+    with mgmt_col2:
+        st.markdown("**📋 复制并重新研究**")
+        clone_topic = st.text_input(
+            "新任务主题（可选）",
+            value="",
+            key="clone_topic_input",
+            placeholder="留空则使用原主题",
+            label_visibility="collapsed",
+        )
+        clone_col_a, clone_col_b = st.columns(2)
+        with clone_col_a:
+            if st.button("仅复制", key="btn_clone_only"):
+                try:
+                    override = clone_topic.strip() if clone_topic.strip() else None
+                    result = client.clone_task(task_id, topic_override=override, rerun_immediately=False)
+                    new_id = result.get("new_task_id", "")
+                    st.success(f"✅ 已复制，新任务: {new_id[:8]}...")
+                    st.session_state["selected_task_id"] = new_id
+                    st.rerun()
+                except Exception as e:
+                    st.error(f"复制失败: {e}")
+        with clone_col_b:
+            if st.button("复制并运行", key="btn_clone_run"):
+                try:
+                    override = clone_topic.strip() if clone_topic.strip() else None
+                    result = client.clone_task(task_id, topic_override=override, rerun_immediately=True)
+                    new_id = result.get("new_task_id", "")
+                    st.success(f"✅ 已复制，新任务: {new_id[:8]}...")
+                    # 触发运行
+                    try:
+                        client.run_research(new_id)
+                    except Exception:
+                        pass
+                    st.session_state["selected_task_id"] = new_id
+                    st.rerun()
+                except Exception as e:
+                    st.error(f"复制并运行失败: {e}")
+
+    # 删除
+    with mgmt_col3:
+        st.markdown("**🗑️ 删除任务**")
+        st.caption("此操作只会从历史列表中隐藏该任务，不会删除 Obsidian 中已导出的文件。")
+        confirm_delete = st.checkbox("我确认删除该任务", key="confirm_delete_checkbox")
+        if st.button("删除任务", key="btn_delete", type="secondary", disabled=not confirm_delete):
+            try:
+                result = client.delete_task(task_id)
+                st.success(f"✅ {result.get('message', '已删除')}")
+                st.session_state.pop("selected_task_id", None)
+                st.rerun()
+            except Exception as e:
+                st.error(f"删除失败: {e}")
 
 # === 报告导入 badge 和摘要 ===
 
@@ -627,7 +767,7 @@ tabs = st.tabs(tab_names)
 
 # 全部来源 tab
 with tabs[0]:
-    _render_source_list(filtered, client, show_origin=_is_report_ingestion)
+    _render_source_list(filtered, client, show_origin=_is_report_ingestion, key_prefix="all_")
 
 # 分类 tabs
 if _is_report_ingestion:
@@ -637,7 +777,7 @@ if _is_report_ingestion:
             if not cat_items:
                 st.info(f"「{cat_name}」暂无内容。")
             else:
-                _render_source_list(cat_items, client, show_origin=True)
+                _render_source_list(cat_items, client, show_origin=True, key_prefix=f"cat{idx}_")
 else:
     for idx, cat_name in enumerate(tab_names[1:], 1):
         with tabs[idx]:
@@ -645,7 +785,7 @@ else:
             if not cat_items:
                 st.info(f"「{cat_name}」暂无内容。")
             else:
-                _render_source_list(cat_items, client)
+                _render_source_list(cat_items, client, key_prefix=f"cat{idx}_")
 
 st.divider()
 

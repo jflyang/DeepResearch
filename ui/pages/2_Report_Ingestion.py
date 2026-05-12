@@ -163,7 +163,7 @@ if run_clicked:
 # --- 查看 Results ---
 with col_btn4:
     if st.session_state.get("ri_task_id"):
-        st.page_link("pages/2_Results.py", label="📊 查看 Results", icon="📊")
+        st.page_link("pages/3_Results.py", label="📊 查看 Results", icon="📊")
 
 # === 解析预览 ===
 
@@ -195,4 +195,4 @@ if ri_result:
     col3.metric("失败数", ri_result.get("failed_count", 0))
     col4.metric("总来源数", ri_result.get("source_count", 0))
 
-    st.page_link("pages/2_Results.py", label="📊 前往 Results 查看详细结果", icon="📊")
+    st.page_link("pages/3_Results.py", label="📊 前往 Results 查看详细结果", icon="📊")

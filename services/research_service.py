@@ -247,6 +247,9 @@ class ResearchService:
             },
         )
 
+        # 5.5 为 top N 来源生成 reason_to_read（LLM 增强，失败不影响主流程）
+        await self._generate_source_reasons(task, source_items)
+
         # 6. 更新任务状态
         task.status = TaskStatus.COMPLETED
         task.completed_at = datetime.now(UTC)
@@ -553,3 +556,227 @@ class ResearchService:
             items.append(item)
 
         return items
+
+    async def _generate_source_reasons(self, task: ResearchTask, source_items: list[SourceItem]) -> None:
+        """为 top N 来源生成 LLM 增强的 reason_to_read。失败使用 fallback，不影响主流程。"""
+        if not self._ai_gateway:
+            return
+
+        # 只为 S/A/B 级来源生成，最多 15 条
+        top_items = [item for item in source_items if item.source_level.value in ("S", "A", "B")][:15]
+        if not top_items:
+            return
+
+        try:
+            sources_payload = [
+                {
+                    "title": item.title[:100],
+                    "url": item.url,
+                    "level": item.source_level.value,
+                    "type": item.source_type.value,
+                    "snippet": item.snippet[:200],
+                }
+                for item in top_items
+            ]
+
+            from pydantic import BaseModel, Field
+
+            class ReasonResult(BaseModel):
+                reasons: list[dict] = Field(default_factory=list)
+
+            result = await self._ai_gateway.run_json(
+                task_name="source_reason_generation",
+                payload={"topic": task.topic, "sources": sources_payload},
+                output_schema=ReasonResult,
+                language="zh",
+            )
+
+            # 应用生成的 reasons
+            url_to_reason = {r.get("url", ""): r.get("reason", "") for r in result.reasons}
+            for item in top_items:
+                if item.url in url_to_reason and url_to_reason[item.url]:
+                    item.reason_to_read = url_to_reason[item.url]
+
+            logger.info("source_reasons_generated task_id=%s count=%d", task.id, len(url_to_reason))
+
+        except Exception as e:
+            # Fallback: 保留规则生成的 reason_to_read，不影响主流程
+            logger.warning("source_reason_generation_failed task_id=%s error=%s", task.id, str(e)[:100])
+
+
+# === 任务管理服务 ===
+
+
+class ResearchTaskManagementService:
+    """研究任务管理服务 - 重命名、删除、复制、重跑。"""
+
+    def rename_task(
+        self,
+        task_id: str,
+        topic: str,
+        canonical_topic: str | None = None,
+        include_deleted: bool = False,
+    ) -> dict:
+        """重命名研究任务。"""
+        from db.repositories import TaskRepository
+        from db.session import get_session
+
+        session = get_session()
+        try:
+            repo = TaskRepository(session)
+            row = repo.get_task(task_id)
+            if not row:
+                return {"error": "not_found", "message": "任务不存在"}
+            if row.deleted_at and not include_deleted:
+                return {"error": "deleted", "message": "已删除的任务不允许重命名"}
+
+            old_topic = row.topic
+            updated = repo.rename_task(task_id, topic, canonical_topic)
+            if not updated:
+                return {"error": "update_failed", "message": "更新失败"}
+
+            # Trace
+            get_recorder().info(
+                task_id, "task_renamed", TracePhase.STORAGE,
+                message=f"Task renamed: {old_topic} → {topic}",
+                output_summary={"old_topic": old_topic, "new_topic": topic},
+            )
+            log_event(task_id, "task_renamed", f"重命名: {old_topic} → {topic}")
+
+            return {
+                "task_id": task_id,
+                "status": updated.status,
+                "message": f"已重命名为: {topic}",
+            }
+        finally:
+            session.close()
+
+    def soft_delete_task(self, task_id: str) -> dict:
+        """软删除研究任务。"""
+        from db.repositories import TaskRepository
+        from db.session import get_session
+
+        session = get_session()
+        try:
+            repo = TaskRepository(session)
+            row = repo.get_task(task_id)
+            if not row:
+                return {"error": "not_found", "message": "任务不存在"}
+            if row.deleted_at:
+                return {"error": "already_deleted", "message": "任务已被删除"}
+
+            updated = repo.soft_delete_task(task_id)
+            if not updated:
+                return {"error": "delete_failed", "message": "删除失败"}
+
+            # Trace
+            get_recorder().info(
+                task_id, "task_soft_deleted", TracePhase.STORAGE,
+                message=f"Task soft deleted: {row.topic}",
+                output_summary={"deleted_at": updated.deleted_at.isoformat() if updated.deleted_at else None},
+            )
+            log_event(task_id, "task_soft_deleted", f"任务已软删除: {row.topic}")
+
+            return {
+                "task_id": task_id,
+                "status": "deleted",
+                "message": "研究任务已删除",
+            }
+        finally:
+            session.close()
+
+    def hard_delete_task(self, task_id: str) -> dict:
+        """硬删除研究任务及关联数据。"""
+        from db.repositories import TaskRepository
+        from db.session import get_session
+
+        session = get_session()
+        try:
+            repo = TaskRepository(session)
+            row = repo.get_task(task_id)
+            if not row:
+                return {"error": "not_found", "message": "任务不存在"}
+
+            topic = row.topic
+            success = repo.hard_delete_task(task_id)
+            if not success:
+                return {"error": "delete_failed", "message": "删除失败"}
+
+            logger.info("task_hard_deleted task_id=%s topic=%s", task_id, topic)
+
+            return {
+                "task_id": task_id,
+                "status": "hard_deleted",
+                "message": "研究任务及关联数据已永久删除",
+            }
+        finally:
+            session.close()
+
+    def clone_task(
+        self,
+        task_id: str,
+        topic_override: str | None = None,
+        rerun_immediately: bool = False,
+    ) -> dict:
+        """复制研究任务配置，创建新任务。"""
+        from db.repositories import TaskRepository
+        from db.session import get_session
+
+        session = get_session()
+        try:
+            repo = TaskRepository(session)
+            row = repo.get_task(task_id)
+            if not row:
+                return {"error": "not_found", "message": "任务不存在"}
+
+            new_row = repo.clone_task(task_id, topic_override)
+            if not new_row:
+                return {"error": "clone_failed", "message": "复制失败"}
+
+            # Trace
+            get_recorder().info(
+                new_row.id, "task_cloned_from", TracePhase.PLANNING,
+                message=f"Cloned from task {task_id}",
+                input_summary={
+                    "old_task_id": task_id,
+                    "new_task_id": new_row.id,
+                    "topic_override": topic_override,
+                    "rerun_immediately": rerun_immediately,
+                },
+            )
+            log_event(new_row.id, "task_cloned", f"从 {task_id} 复制创建")
+
+            return {
+                "task_id": task_id,
+                "new_task_id": new_row.id,
+                "status": "pending",
+                "message": "已复制研究任务",
+            }
+        finally:
+            session.close()
+
+    def rerun_task(self, task_id: str, clone: bool = True) -> dict:
+        """重新发起研究任务。clone=True 时复制旧任务并运行新任务。"""
+        if not clone:
+            return {
+                "error": "not_supported",
+                "message": "暂不支持直接重跑原任务，请使用 clone=true 模式",
+            }
+
+        result = self.clone_task(task_id, rerun_immediately=True)
+        if "error" in result:
+            return result
+
+        # 标记为需要运行（实际运行由 API 层调用 /run 触发）
+        result["status"] = "pending"
+        result["message"] = "已基于历史任务复制并准备重新研究"
+
+        # Trace
+        new_task_id = result.get("new_task_id", "")
+        get_recorder().info(
+            new_task_id, "task_rerun_started", TracePhase.PLANNING,
+            message=f"Rerun from task {task_id}",
+            input_summary={"old_task_id": task_id, "new_task_id": new_task_id},
+        )
+
+        return result

@@ -38,13 +38,15 @@ class APIClient:
         r.raise_for_status()
         return r.json()
 
-    def list_tasks(self, limit: int = 50, offset: int = 0, status: str | None = None, q: str | None = None) -> dict:
+    def list_tasks(self, limit: int = 50, offset: int = 0, status: str | None = None, q: str | None = None, include_deleted: bool = False) -> dict:
         """获取研究任务列表。"""
         params = {"limit": limit, "offset": offset}
         if status:
             params["status"] = status
         if q:
             params["q"] = q
+        if include_deleted:
+            params["include_deleted"] = "true"
         r = httpx.get(self._url("/research/tasks"), params=params, timeout=10.0)
         r.raise_for_status()
         return r.json()
@@ -337,5 +339,39 @@ class APIClient:
             params=params,
             timeout=10.0,
         )
+        r.raise_for_status()
+        return r.json()
+
+    # === Task Management ===
+
+    def rename_task(self, task_id: str, topic: str, canonical_topic: str | None = None) -> dict:
+        """重命名研究任务。"""
+        payload = {"topic": topic}
+        if canonical_topic is not None:
+            payload["canonical_topic"] = canonical_topic
+        r = httpx.patch(self._url(f"/research/tasks/{task_id}"), json=payload, timeout=10.0)
+        r.raise_for_status()
+        return r.json()
+
+    def delete_task(self, task_id: str, hard_delete: bool = False, delete_obsidian_files: bool = False) -> dict:
+        """删除研究任务（默认软删除）。"""
+        payload = {"hard_delete": hard_delete, "delete_obsidian_files": delete_obsidian_files}
+        r = httpx.request("DELETE", self._url(f"/research/tasks/{task_id}"), json=payload, timeout=10.0)
+        r.raise_for_status()
+        return r.json()
+
+    def clone_task(self, task_id: str, topic_override: str | None = None, rerun_immediately: bool = False) -> dict:
+        """复制研究任务配置，创建新任务。"""
+        payload = {"rerun_immediately": rerun_immediately}
+        if topic_override:
+            payload["topic_override"] = topic_override
+        r = httpx.post(self._url(f"/research/tasks/{task_id}/clone"), json=payload, timeout=10.0)
+        r.raise_for_status()
+        return r.json()
+
+    def rerun_task(self, task_id: str, clone: bool = True) -> dict:
+        """重新发起研究任务。"""
+        payload = {"clone": clone}
+        r = httpx.post(self._url(f"/research/tasks/{task_id}/rerun"), json=payload, timeout=10.0)
         r.raise_for_status()
         return r.json()

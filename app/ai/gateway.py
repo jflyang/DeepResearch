@@ -100,8 +100,20 @@ class AIGateway:
     ) -> LLMResponse:
         """获取 provider 并调用 generate。"""
         provider = self._router.get_provider(config.provider)
+
+        # 确定模型：如果 provider 有自己的 default_model 且 config.model 不适用于该 provider，
+        # 则使用 provider 的 default_model。
+        model = config.model
+        if hasattr(provider, '_default_model') and provider._default_model:
+            # 如果 config.model 是 ollama 格式（含冒号如 qwen3:8b）而 provider 不是 ollama，
+            # 则使用 provider 自己的 default_model
+            if ':' in model and not isinstance(provider, type(None)):
+                from app.providers.llm.ollama import OllamaProvider
+                if not isinstance(provider, OllamaProvider):
+                    model = provider._default_model
+
         request = LLMRequest(
-            model=config.model,
+            model=model,
             user_prompt=prompt,
             temperature=config.temperature,
             max_output_tokens=config.max_output_tokens,

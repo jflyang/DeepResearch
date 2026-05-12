@@ -16,6 +16,7 @@ tasks:
   topic_understanding:
     enabled: true
     implemented: true
+    stage: planning
     temperature: 0.1
     max_input_chars: 2000
     max_output_tokens: 800
@@ -24,6 +25,8 @@ tasks:
   language_planning:
     enabled: true
     implemented: true
+    stage: planning
+    covered_by: topic_understanding
     temperature: 0.1
     max_input_chars: 2000
     max_output_tokens: 800
@@ -32,6 +35,7 @@ tasks:
   query_expansion:
     enabled: true
     implemented: true
+    stage: planning
     provider: active
     temperature: 0.3
     max_input_chars: 3000
@@ -41,6 +45,7 @@ tasks:
   query_translation:
     enabled: true
     implemented: false
+    stage: planning
     temperature: 0.1
     max_input_chars: 1000
     max_output_tokens: 500
@@ -51,17 +56,20 @@ tasks:
   source_review:
     enabled: false
     implemented: true
+    stage: scoring
     temperature: 0.1
     max_input_chars: 2500
     max_output_tokens: 700
     fallback: rule_based_scoring
 
   source_reason_generation:
-    enabled: false
-    implemented: false
+    enabled: true
+    implemented: true
+    stage: scoring
     temperature: 0.2
     max_input_chars: 2000
     max_output_tokens: 500
+    json_required: true
     fallback: rule_reason_to_read
 
   # === Analysis Stage ===
@@ -69,6 +77,8 @@ tasks:
   entity_extraction:
     enabled: true
     implemented: true
+    stage: analysis
+    wait_for: extraction
     temperature: 0.1
     max_input_chars: 8000
     max_output_tokens: 1200
@@ -77,6 +87,8 @@ tasks:
   document_summary:
     enabled: true
     implemented: true
+    stage: analysis
+    wait_for: extraction
     temperature: 0.3
     max_input_chars: 12000
     max_output_tokens: 1800
@@ -85,6 +97,8 @@ tasks:
   story_point_extraction:
     enabled: true
     implemented: false
+    stage: analysis
+    wait_for: extraction
     temperature: 0.3
     max_input_chars: 10000
     max_output_tokens: 1500
@@ -93,6 +107,7 @@ tasks:
   gossip_classification:
     enabled: true
     implemented: false
+    stage: analysis
     temperature: 0.1
     max_input_chars: 3000
     max_output_tokens: 500
@@ -101,6 +116,8 @@ tasks:
   timeline_extraction:
     enabled: true
     implemented: false
+    stage: analysis
+    wait_for: extraction
     temperature: 0.1
     max_input_chars: 8000
     max_output_tokens: 1000
@@ -111,6 +128,7 @@ tasks:
   contradiction_detection:
     enabled: false
     implemented: false
+    stage: synthesis
     temperature: 0.1
     max_input_chars: 12000
     max_output_tokens: 1200
@@ -119,6 +137,7 @@ tasks:
   research_card_generation:
     enabled: true
     implemented: false
+    stage: synthesis
     temperature: 0.3
     max_input_chars: 10000
     max_output_tokens: 1800
@@ -128,18 +147,22 @@ tasks:
 
   markdown_summary_generation:
     enabled: true
-    implemented: false
+    implemented: true
+    stage: export
     temperature: 0.3
     max_input_chars: 10000
     max_output_tokens: 1500
+    json_required: false
     fallback: empty_sections
 
   final_index_synthesis:
-    enabled: false
-    implemented: false
+    enabled: true
+    implemented: true
+    stage: export
     temperature: 0.3
     max_input_chars: 8000
     max_output_tokens: 2000
+    json_required: false
     fallback: rule_based_index
 
   # === Processing Stage (optional) ===
@@ -147,6 +170,7 @@ tasks:
   reranking:
     enabled: false
     implemented: false
+    stage: processing
     temperature: 0.1
     max_input_chars: 5000
     max_output_tokens: 800
@@ -157,6 +181,7 @@ tasks:
   report_understanding:
     enabled: true
     implemented: true
+    stage: ingestion
     temperature: 0.2
     max_input_chars: 12000
     max_output_tokens: 1800
@@ -165,6 +190,7 @@ tasks:
   report_reference_extraction:
     enabled: true
     implemented: true
+    stage: ingestion
     temperature: 0.2
     max_input_chars: 12000
     max_output_tokens: 2200
@@ -173,6 +199,7 @@ tasks:
   imported_source_prioritization:
     enabled: true
     implemented: true
+    stage: ingestion
     temperature: 0.1
     max_input_chars: 8000
     max_output_tokens: 1600

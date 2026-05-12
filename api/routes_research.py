@@ -74,52 +74,11 @@ async def create_task(request: CreateTaskRequest):
     return CreateTaskResponse(task_id=task.id, status=task.status.value)
 
 
-@router.get("/tasks")
-async def list_tasks(
-    limit: int = Query(default=50, ge=1, le=200),
-    offset: int = Query(default=0, ge=0),
-    status: Optional[str] = Query(default=None),
-    q: Optional[str] = Query(default=None),
-):
-    """列出研究任务（从 DB 读取，按创建时间倒序）。"""
-    session = get_session()
-    try:
-        repo = TaskRepository(session)
-        src_repo = SourceRepository(session)
-
-        tasks = repo.list_tasks(limit=limit, offset=offset, status=status, q=q)
-        total = repo.count_tasks(status=status, q=q)
-
-        items = []
-        for t in tasks:
-            source_count = src_repo.count_by_task(t.id)
-            high_quality_count = src_repo.count_high_quality(t.id)
-            extracted_count = src_repo.count_extracted(t.id)
-
-            items.append({
-                "task_id": t.id,
-                "topic": t.topic,
-                "canonical_topic": t.canonical_topic or "",
-                "mode": t.mode,
-                "status": t.status,
-                "depth": t.depth,
-                "created_at": t.created_at.isoformat() if t.created_at else None,
-                "completed_at": t.completed_at.isoformat() if t.completed_at else None,
-                "source_count": source_count,
-                "high_quality_count": high_quality_count,
-                "extracted_count": extracted_count,
-                "exported": t.exported,
-                "export_path": t.export_path or None,
-            })
-
-        return {"items": items, "total": total, "limit": limit, "offset": offset}
-    finally:
-        session.close()
-
-
 @router.post("/tasks/{task_id}/run")
 async def run_research(task_id: str):
-    """运行初始研究。"""
+    """运行初始研究（后台执行，立即返回 running 状态）。"""
+    import asyncio
+
     # 从 DB 加载任务
     session = get_session()
     try:
@@ -129,69 +88,109 @@ async def run_research(task_id: str):
             raise HTTPException(status_code=404, detail="Task not found")
         if row.status not in (TaskStatus.PENDING, TaskStatus.FAILED):
             raise HTTPException(status_code=400, detail=f"Task already in status: {row.status}")
+
+        # 读取所有需要的字段（避免 session 关闭后 DetachedInstanceError）
+        task_topic = row.topic
+        task_mode = row.mode
+        task_depth = row.depth
+        task_include_gossip = row.include_gossip
+        task_include_books = row.include_books
+        task_include_video = row.include_video
+
+        # 立即标记为 running
+        repo.update_task_status(task_id, TaskStatus.RUNNING)
     finally:
         session.close()
 
     # 构建 ResearchTask pydantic 模型
     from models.schemas import ResearchTask
     task = ResearchTask(
-        id=row.id,
-        topic=row.topic,
-        mode=TaskMode(row.mode),
-        depth=row.depth,
-        include_gossip=row.include_gossip,
-        include_books=row.include_books,
-        include_video=row.include_video,
+        id=task_id,
+        topic=task_topic,
+        mode=TaskMode(task_mode),
+        depth=task_depth,
+        include_gossip=task_include_gossip,
+        include_books=task_include_books,
+        include_video=task_include_video,
         status=TaskStatus.PENDING,
     )
 
-    # 创建 AI Gateway
-    ai_gateway = _create_ai_gateway()
+    # 启动后台任务
+    asyncio.create_task(_run_research_background(task_id, task))
 
-    service = ResearchService(ai_gateway=ai_gateway)
-    summary = await service.run_initial_research(task)
+    return {"task_id": task_id, "status": "running", "message": "研究任务已启动"}
 
-    # 保存 source_items 到内存缓存（用于分类展示）
-    source_items = getattr(service, "last_source_items", [])
-    _source_items[task_id] = source_items
 
-    # 持久化结果到 DB
-    session = get_session()
+async def _run_research_background(task_id: str, task):
+    """后台执行研究流程，持续写 trace。"""
+    import logging
+    _logger = logging.getLogger(__name__)
+
     try:
-        repo = TaskRepository(session)
-        repo.mark_completed(
-            task_id=task_id,
-            source_count=len(source_items),
-            expanded_queries=task.expanded_queries,
+        # 创建 AI Gateway
+        ai_gateway = _create_ai_gateway()
+
+        service = ResearchService(ai_gateway=ai_gateway)
+        summary = await service.run_initial_research(task)
+
+        # 保存 source_items 到内存缓存
+        source_items = getattr(service, "last_source_items", [])
+        _source_items[task_id] = source_items
+
+        # 持久化结果到 DB
+        session = get_session()
+        try:
+            repo = TaskRepository(session)
+            repo.mark_completed(
+                task_id=task_id,
+                source_count=len(source_items),
+                expanded_queries=task.expanded_queries,
+            )
+
+            # 保存 sources 到 DB
+            src_repo = SourceRepository(session)
+            source_dicts = []
+            for item in source_items:
+                source_dicts.append({
+                    "id": item.id,
+                    "task_id": item.task_id,
+                    "title": item.title,
+                    "url": item.url,
+                    "domain": item.domain,
+                    "snippet": item.snippet,
+                    "source_type": item.source_type.value,
+                    "source_level": item.source_level.value,
+                    "relevance_score": item.relevance_score,
+                    "authority_score": item.authority_score,
+                    "originality_score": item.originality_score,
+                    "gossip_score": item.gossip_score,
+                    "downloadable": item.downloadable,
+                    "download_status": item.download_status.value,
+                    "reason_to_read": item.reason_to_read,
+                })
+            if source_dicts:
+                src_repo.bulk_create(source_dicts)
+        finally:
+            session.close()
+
+    except Exception as e:
+        _logger.error("background_research_failed task_id=%s error=%s", task_id, str(e))
+        # 标记任务失败
+        session = get_session()
+        try:
+            repo = TaskRepository(session)
+            repo.update_task_status(task_id, TaskStatus.FAILED, error_message=str(e)[:500])
+        finally:
+            session.close()
+
+        # 写 trace
+        from app.tracing.recorder import get_recorder
+        from app.tracing.models import TraceStep, TracePhase
+        get_recorder().error(
+            task_id, TraceStep.TASK_FAILED, TracePhase.PROCESSING,
+            message=f"Research failed: {str(e)[:200]}",
+            error_message=str(e)[:500],
         )
-
-        # 保存 sources 到 DB
-        src_repo = SourceRepository(session)
-        source_dicts = []
-        for item in source_items:
-            source_dicts.append({
-                "id": item.id,
-                "task_id": item.task_id,
-                "title": item.title,
-                "url": item.url,
-                "domain": item.domain,
-                "snippet": item.snippet,
-                "source_type": item.source_type.value,
-                "source_level": item.source_level.value,
-                "relevance_score": item.relevance_score,
-                "authority_score": item.authority_score,
-                "originality_score": item.originality_score,
-                "gossip_score": item.gossip_score,
-                "downloadable": item.downloadable,
-                "download_status": item.download_status.value,
-                "reason_to_read": item.reason_to_read,
-            })
-        if source_dicts:
-            src_repo.bulk_create(source_dicts)
-    finally:
-        session.close()
-
-    return summary.model_dump()
 
 
 def _create_ai_gateway():
@@ -389,7 +388,7 @@ async def get_task_trace_summary(task_id: str):
 
 @router.get("/tasks/{task_id}/trace/llm")
 async def get_task_trace_llm(task_id: str):
-    """获取任务 LLM 使用详情。"""
+    """获取任务 LLM 使用详情（分组展示）。"""
     _ensure_task_exists(task_id)
 
     from app.tracing.llm_registry import get_all_task_info, RULE_ONLY_STEPS
@@ -412,13 +411,15 @@ async def get_task_trace_llm(task_id: str):
         task_name = (e.output_summary or {}).get("task_name") or (e.input_summary or {}).get("task_name", "")
         if task_name:
             called_tasks.add(task_name)
+            info = next((t for t in all_task_info if t.task_name == task_name), None)
             llm_tasks_status.append({
                 "task_name": task_name,
-                "stage": next((t.stage for t in all_task_info if t.task_name == task_name), "unknown"),
+                "stage": info.stage if info else "unknown",
+                "group": info.group if info else "executed",
                 "status": "used_llm",
                 "provider": e.provider,
                 "model": e.model,
-                "prompt_template": next((t.prompt_template for t in all_task_info if t.task_name == task_name), ""),
+                "prompt_template": info.prompt_template if info else "",
                 "input_chars": (e.output_summary or {}).get("input_chars"),
                 "output_chars": (e.output_summary or {}).get("output_chars"),
                 "duration_ms": e.duration_ms,
@@ -428,26 +429,55 @@ async def get_task_trace_llm(task_id: str):
         task_name = (e.input_summary or {}).get("task_name", "")
         if task_name and task_name not in called_tasks:
             called_tasks.add(task_name)
+            info = next((t for t in all_task_info if t.task_name == task_name), None)
             llm_tasks_status.append({
                 "task_name": task_name,
-                "stage": next((t.stage for t in all_task_info if t.task_name == task_name), "unknown"),
+                "stage": info.stage if info else "unknown",
+                "group": info.group if info else "executed",
                 "status": "fallback",
                 "provider": e.provider,
                 "model": e.model,
                 "error_message": e.error_message,
                 "fallback_used": True,
-                "fallback_name": next((t.fallback for t in all_task_info if t.task_name == task_name), ""),
+                "fallback_name": info.fallback if info else "",
             })
 
     for info in all_task_info:
         if info.task_name in called_tasks:
             continue
-        if not info.implemented:
-            llm_tasks_status.append({"task_name": info.task_name, "stage": info.stage, "status": "skipped_not_implemented", "skipped_reason": "当前版本未实现"})
+        if info.covered_by:
+            llm_tasks_status.append({
+                "task_name": info.task_name, "stage": info.stage, "group": "covered",
+                "status": "covered_by", "skipped_reason": f"由 {info.covered_by} 覆盖",
+                "covered_by": info.covered_by,
+            })
+        elif not info.implemented:
+            llm_tasks_status.append({
+                "task_name": info.task_name, "stage": info.stage, "group": "planned",
+                "status": "skipped_not_implemented", "skipped_reason": "规划中",
+            })
         elif not info.enabled:
-            llm_tasks_status.append({"task_name": info.task_name, "stage": info.stage, "status": "skipped_disabled", "skipped_reason": f"{info.task_name}.enabled=false", "fallback_name": info.fallback})
+            llm_tasks_status.append({
+                "task_name": info.task_name, "stage": info.stage, "group": "disabled",
+                "status": "skipped_disabled", "skipped_reason": f"{info.task_name}.enabled=false",
+                "fallback_name": info.fallback,
+            })
+        elif info.wait_for:
+            llm_tasks_status.append({
+                "task_name": info.task_name, "stage": info.stage, "group": "waiting",
+                "status": "waiting", "skipped_reason": f"等待{info.wait_for}",
+                "wait_for": info.wait_for,
+            })
+        elif info.group == "export":
+            llm_tasks_status.append({
+                "task_name": info.task_name, "stage": info.stage, "group": "export",
+                "status": "skipped_not_reached", "skipped_reason": "导出时触发",
+            })
         else:
-            llm_tasks_status.append({"task_name": info.task_name, "stage": info.stage, "status": "skipped_not_reached", "skipped_reason": "流程未到达该阶段"})
+            llm_tasks_status.append({
+                "task_name": info.task_name, "stage": info.stage, "group": info.group,
+                "status": "skipped_not_reached", "skipped_reason": "流程未到达",
+            })
 
     return {
         "task_id": task_id,
@@ -457,6 +487,149 @@ async def get_task_trace_llm(task_id: str):
         "llm_tasks": llm_tasks_status,
         "rule_only_steps": RULE_ONLY_STEPS,
     }
+
+
+# === Task Management Endpoints ===
+
+
+@router.get("/tasks")
+async def list_tasks_endpoint(
+    limit: int = Query(default=50, ge=1, le=200),
+    offset: int = Query(default=0, ge=0),
+    status: Optional[str] = Query(default=None),
+    q: Optional[str] = Query(default=None),
+    include_deleted: bool = Query(default=False),
+):
+    """列出研究任务（从 DB 读取，按创建时间倒序）。支持 include_deleted 参数。"""
+    session = get_session()
+    try:
+        repo = TaskRepository(session)
+        src_repo = SourceRepository(session)
+
+        tasks = repo.list_tasks(limit=limit, offset=offset, status=status, q=q, include_deleted=include_deleted)
+        total = repo.count_tasks(status=status, q=q, include_deleted=include_deleted)
+
+        items = []
+        for t in tasks:
+            source_count = src_repo.count_by_task(t.id)
+            high_quality_count = src_repo.count_high_quality(t.id)
+            extracted_count = src_repo.count_extracted(t.id)
+
+            items.append({
+                "task_id": t.id,
+                "topic": t.topic,
+                "canonical_topic": t.canonical_topic or "",
+                "mode": t.mode,
+                "status": t.status,
+                "depth": t.depth,
+                "created_at": t.created_at.isoformat() if t.created_at else None,
+                "completed_at": t.completed_at.isoformat() if t.completed_at else None,
+                "source_count": source_count,
+                "high_quality_count": high_quality_count,
+                "extracted_count": extracted_count,
+                "exported": t.exported,
+                "export_path": t.export_path or None,
+                "deleted_at": t.deleted_at.isoformat() if t.deleted_at else None,
+                "cloned_from_task_id": t.cloned_from_task_id or None,
+            })
+
+        return {"items": items, "total": total, "limit": limit, "offset": offset}
+    finally:
+        session.close()
+
+
+@router.patch("/tasks/{task_id}")
+async def rename_task(task_id: str, request: dict):
+    """重命名研究任务。"""
+    from models.schemas import ResearchTaskRenameRequest
+    from services.research_service import ResearchTaskManagementService
+
+    topic = request.get("topic")
+    if not topic or not topic.strip():
+        raise HTTPException(status_code=400, detail="topic 不能为空")
+
+    rename_req = ResearchTaskRenameRequest(
+        topic=topic.strip(),
+        canonical_topic=request.get("canonical_topic"),
+    )
+
+    service = ResearchTaskManagementService()
+    result = service.rename_task(task_id, rename_req.topic, rename_req.canonical_topic)
+
+    if "error" in result:
+        if result["error"] == "not_found":
+            raise HTTPException(status_code=404, detail=result["message"])
+        raise HTTPException(status_code=400, detail=result["message"])
+
+    return result
+
+
+@router.delete("/tasks/{task_id}")
+async def delete_task(task_id: str, request: dict | None = None):
+    """删除研究任务（默认软删除）。"""
+    from services.research_service import ResearchTaskManagementService
+
+    hard_delete = False
+    if request:
+        hard_delete = request.get("hard_delete", False)
+
+    service = ResearchTaskManagementService()
+
+    if hard_delete:
+        result = service.hard_delete_task(task_id)
+    else:
+        result = service.soft_delete_task(task_id)
+
+    if "error" in result:
+        if result["error"] == "not_found":
+            raise HTTPException(status_code=404, detail=result["message"])
+        raise HTTPException(status_code=400, detail=result["message"])
+
+    return result
+
+
+@router.post("/tasks/{task_id}/clone")
+async def clone_task(task_id: str, request: dict | None = None):
+    """复制研究任务配置，创建新任务。"""
+    from services.research_service import ResearchTaskManagementService
+
+    topic_override = None
+    rerun_immediately = False
+    if request:
+        topic_override = request.get("topic_override")
+        rerun_immediately = request.get("rerun_immediately", False)
+
+    service = ResearchTaskManagementService()
+    result = service.clone_task(task_id, topic_override=topic_override, rerun_immediately=rerun_immediately)
+
+    if "error" in result:
+        if result["error"] == "not_found":
+            raise HTTPException(status_code=404, detail=result["message"])
+        raise HTTPException(status_code=400, detail=result["message"])
+
+    return result
+
+
+@router.post("/tasks/{task_id}/rerun")
+async def rerun_task(task_id: str, request: dict | None = None):
+    """重新发起研究任务。"""
+    from services.research_service import ResearchTaskManagementService
+
+    clone = True
+    if request:
+        clone = request.get("clone", True)
+
+    service = ResearchTaskManagementService()
+    result = service.rerun_task(task_id, clone=clone)
+
+    if "error" in result:
+        if result["error"] == "not_found":
+            raise HTTPException(status_code=404, detail=result["message"])
+        if result["error"] == "not_supported":
+            raise HTTPException(status_code=400, detail=result["message"])
+        raise HTTPException(status_code=400, detail=result["message"])
+
+    return result
 
 
 def _ensure_task_exists(task_id: str) -> None:

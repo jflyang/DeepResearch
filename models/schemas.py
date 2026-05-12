@@ -295,3 +295,43 @@ class ReportIngestionResult(BaseModel):
     failed_count: int = 0
     source_count: int = 0
     exported_path: str | None = None
+
+
+# === Task Management ===
+
+
+class ResearchTaskRenameRequest(BaseModel):
+    """重命名研究任务请求。"""
+
+    topic: str = Field(min_length=1, max_length=500)
+    canonical_topic: str | None = None
+
+
+class ResearchTaskDeleteRequest(BaseModel):
+    """删除研究任务请求。"""
+
+    hard_delete: bool = False
+    delete_obsidian_files: bool = False
+
+
+class ResearchTaskCloneRequest(BaseModel):
+    """复制研究任务请求。"""
+
+    rerun_immediately: bool = False
+    topic_override: str | None = None
+    reset_status: bool = True
+
+
+class ResearchTaskRerunRequest(BaseModel):
+    """重新发起研究任务请求。"""
+
+    clone: bool = True
+
+
+class ResearchTaskManagementResponse(BaseModel):
+    """任务管理操作响应。"""
+
+    task_id: str
+    status: str
+    message: str
+    new_task_id: str | None = None

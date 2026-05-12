@@ -106,21 +106,120 @@ class TaskRepository:
         offset: int = 0,
         status: str | None = None,
         q: str | None = None,
+        include_deleted: bool = False,
     ) -> list[TaskTable]:
         query = self.session.query(TaskTable)
+        if not include_deleted:
+            query = query.filter(TaskTable.deleted_at.is_(None))
         if status:
             query = query.filter(TaskTable.status == status)
         if q:
             query = query.filter(TaskTable.topic.ilike(f"%{q}%"))
         return query.order_by(TaskTable.created_at.desc()).offset(offset).limit(limit).all()
 
-    def count_tasks(self, status: str | None = None, q: str | None = None) -> int:
+    def count_tasks(self, status: str | None = None, q: str | None = None, include_deleted: bool = False) -> int:
         query = self.session.query(func.count(TaskTable.id))
+        if not include_deleted:
+            query = query.filter(TaskTable.deleted_at.is_(None))
         if status:
             query = query.filter(TaskTable.status == status)
         if q:
             query = query.filter(TaskTable.topic.ilike(f"%{q}%"))
         return query.scalar() or 0
+
+    # ------------------------------------------------------------------
+    # Task Management
+    # ------------------------------------------------------------------
+
+    def rename_task(self, task_id: str, topic: str, canonical_topic: str | None = None) -> TaskTable | None:
+        """重命名任务。返回更新后的 row，不存在返回 None。"""
+        row = self.session.get(TaskTable, task_id)
+        if not row:
+            return None
+        row.topic = topic
+        if canonical_topic is not None:
+            row.canonical_topic = canonical_topic
+        row.renamed_at = datetime.now(UTC)
+        row.updated_at = datetime.now(UTC)
+        self.session.commit()
+        return row
+
+    def soft_delete_task(self, task_id: str) -> TaskTable | None:
+        """软删除任务。返回更新后的 row，不存在返回 None。"""
+        row = self.session.get(TaskTable, task_id)
+        if not row:
+            return None
+        row.deleted_at = datetime.now(UTC)
+        row.updated_at = datetime.now(UTC)
+        self.session.commit()
+        return row
+
+    def restore_task(self, task_id: str) -> TaskTable | None:
+        """恢复已软删除的任务。"""
+        row = self.session.get(TaskTable, task_id)
+        if not row:
+            return None
+        row.deleted_at = None
+        row.updated_at = datetime.now(UTC)
+        self.session.commit()
+        return row
+
+    def hard_delete_task(self, task_id: str) -> bool:
+        """硬删除任务及其关联数据。返回是否成功。"""
+        row = self.session.get(TaskTable, task_id)
+        if not row:
+            return False
+        # 删除关联数据
+        self.session.query(SourceTable).filter(SourceTable.task_id == task_id).delete()
+        self.session.query(QueryTable).filter(QueryTable.task_id == task_id).delete()
+        # 删除 extracted documents（通过 source_item_id 关联）
+        source_ids = [
+            s.id for s in self.session.query(SourceTable.id).filter(SourceTable.task_id == task_id).all()
+        ]
+        if source_ids:
+            self.session.query(ExtractedTable).filter(
+                ExtractedTable.source_item_id.in_(source_ids)
+            ).delete(synchronize_session=False)
+        # 删除 task events
+        from db.tables import TaskEventTable
+        self.session.query(TaskEventTable).filter(TaskEventTable.task_id == task_id).delete()
+        # 删除任务本身
+        self.session.delete(row)
+        self.session.commit()
+        return True
+
+    def clone_task(self, task_id: str, topic_override: str | None = None) -> TaskTable | None:
+        """复制任务配置，创建新任务。不复制 sources/documents/trace。"""
+        from uuid import uuid4
+
+        row = self.session.get(TaskTable, task_id)
+        if not row:
+            return None
+
+        new_id = str(uuid4())
+        new_row = TaskTable(
+            id=new_id,
+            task_type=row.task_type,
+            topic=topic_override or row.topic,
+            canonical_topic=row.canonical_topic,
+            mode=row.mode,
+            language=row.language,
+            depth=row.depth,
+            include_gossip=row.include_gossip,
+            include_books=row.include_books,
+            include_video=row.include_video,
+            status=TaskStatus.PENDING,
+            obsidian_path=row.obsidian_path,
+            user_language=row.user_language,
+            working_language=row.working_language,
+            output_language=row.output_language,
+            search_strategy=row.search_strategy,
+            cloned_from_task_id=task_id,
+            metadata_json=row.metadata_json,
+        )
+        self.session.add(new_row)
+        self.session.commit()
+        return new_row
 
     # ------------------------------------------------------------------
     # Report Ingestion

@@ -57,14 +57,14 @@ def funcs():
 class TestReportIngestionBadge:
     def test_report_ingestion_task_shows_badge(self):
         """report_ingestion task 显示导入 badge。"""
-        content = Path("ui/pages/2_Results.py").read_text(encoding="utf-8")
+        content = Path("ui/pages/3_Results.py").read_text(encoding="utf-8")
         # 页面包含 report_ingestion 检测逻辑
         assert "report_ingestion" in content
         assert "外部研究报告导入" in content
 
     def test_search_research_task_no_badge(self):
         """search_research task 不显示导入 badge。"""
-        content = Path("ui/pages/2_Results.py").read_text(encoding="utf-8")
+        content = Path("ui/pages/3_Results.py").read_text(encoding="utf-8")
         # badge 只在 _is_report_ingestion 为 True 时显示
         assert '_is_report_ingestion = task.get("task_type") == "report_ingestion"' in content
         # 普通任务不会触发 badge
@@ -145,21 +145,21 @@ class TestSourceOriginLabel:
 class TestPageIntegrity:
     def test_page_retains_level_filter(self):
         """保留原有来源等级筛选。"""
-        content = Path("ui/pages/2_Results.py").read_text(encoding="utf-8")
+        content = Path("ui/pages/3_Results.py").read_text(encoding="utf-8")
         assert "level_filter" in content
 
     def test_page_retains_extract_button(self):
         """保留提取正文按钮。"""
-        content = Path("ui/pages/2_Results.py").read_text(encoding="utf-8")
+        content = Path("ui/pages/3_Results.py").read_text(encoding="utf-8")
         assert "extract_source" in content
 
     def test_page_retains_trace(self):
         """保留 Trace 功能。"""
-        content = Path("ui/pages/2_Results.py").read_text(encoding="utf-8")
+        content = Path("ui/pages/3_Results.py").read_text(encoding="utf-8")
         assert "trace" in content.lower()
 
     def test_page_retains_export(self):
         """保留导出到 Obsidian 按钮。"""
-        content = Path("ui/pages/2_Results.py").read_text(encoding="utf-8")
+        content = Path("ui/pages/3_Results.py").read_text(encoding="utf-8")
         assert "export_index" in content
         assert "Obsidian" in content

@@ -20,9 +20,12 @@ def _clear_cache() -> None:
 
 class TestDefaultsMerge:
     def test_task_inherits_defaults(self) -> None:
+        from core.config import get_settings
+        active = get_settings().active_llm_provider
+
         cfg = load_llm_task_config("query_expansion")
-        # task 使用 active provider（默认解析为 ollama_lan）
-        assert cfg.provider == "ollama_lan"
+        # task 使用 active provider（解析为当前配置的 active provider）
+        assert cfg.provider == active
         # model 继承 defaults
         assert cfg.model == "qwen3:8b"
         # 从 defaults 继承
@@ -42,8 +45,11 @@ class TestDefaultsMerge:
         assert cfg.fallback == "regex_entity_extraction"
 
     def test_all_defaults_applied_when_task_minimal(self) -> None:
+        from core.config import get_settings
+        active = get_settings().active_llm_provider
+
         cfg = load_llm_task_config("topic_understanding")
-        assert cfg.provider == "ollama_lan"
+        assert cfg.provider == active
         assert cfg.model == "qwen3:8b"
         assert cfg.retry_on_parse_error is True
         assert cfg.max_retries == 1

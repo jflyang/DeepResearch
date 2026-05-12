@@ -14,7 +14,7 @@ def _import_page_functions():
     """从页面文件中导入纯函数（避免 Streamlit 初始化）。"""
     import importlib.util
 
-    page_path = Path("ui/pages/3_Report_Ingestion.py")
+    page_path = Path("ui/pages/2_Report_Ingestion.py")
     source = page_path.read_text(encoding="utf-8")
 
     # 提取纯函数定义
@@ -188,37 +188,37 @@ class TestPageFileIntegrity:
     """验证页面文件包含必要元素。"""
 
     def test_page_exists(self):
-        page_path = Path("ui/pages/3_Report_Ingestion.py")
+        page_path = Path("ui/pages/2_Report_Ingestion.py")
         assert page_path.exists()
 
     def test_page_has_header(self):
-        content = Path("ui/pages/3_Report_Ingestion.py").read_text(encoding="utf-8")
+        content = Path("ui/pages/2_Report_Ingestion.py").read_text(encoding="utf-8")
         assert "导入外部研究报告" in content
 
     def test_page_calls_api_client(self):
-        content = Path("ui/pages/3_Report_Ingestion.py").read_text(encoding="utf-8")
+        content = Path("ui/pages/2_Report_Ingestion.py").read_text(encoding="utf-8")
         assert "create_report_import_task" in content
         assert "parse_report_import_task" in content
         assert "run_report_import_task" in content
 
     def test_page_saves_task_id(self):
-        content = Path("ui/pages/3_Report_Ingestion.py").read_text(encoding="utf-8")
+        content = Path("ui/pages/2_Report_Ingestion.py").read_text(encoding="utf-8")
         assert "selected_task_id" in content
         assert "ri_task_id" in content
 
     def test_page_has_no_parsing_logic(self):
         """UI 不应包含解析逻辑。"""
-        content = Path("ui/pages/3_Report_Ingestion.py").read_text(encoding="utf-8")
+        content = Path("ui/pages/2_Report_Ingestion.py").read_text(encoding="utf-8")
         assert "ReportParserService" not in content
         assert "re.compile" not in content
         assert "import re" not in content
 
     def test_page_has_no_file_writing(self):
         """UI 不应写文件。"""
-        content = Path("ui/pages/3_Report_Ingestion.py").read_text(encoding="utf-8")
+        content = Path("ui/pages/2_Report_Ingestion.py").read_text(encoding="utf-8")
         assert "write_text" not in content
         assert "open(" not in content
 
     def test_page_has_results_link(self):
-        content = Path("ui/pages/3_Report_Ingestion.py").read_text(encoding="utf-8")
-        assert "2_Results" in content
+        content = Path("ui/pages/2_Report_Ingestion.py").read_text(encoding="utf-8")
+        assert "3_Results" in content

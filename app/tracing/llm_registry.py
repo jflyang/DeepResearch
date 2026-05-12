@@ -30,6 +30,9 @@ class LLMTaskInfo(BaseModel):
     implemented: bool = True
     fallback: str = ""
     implementation_status: str = "implemented"  # implemented / planned / disabled / not_applicable
+    covered_by: str = ""  # 如果此任务由另一个任务覆盖
+    wait_for: str = ""  # 等待条件（如 extraction）
+    group: str = ""  # UI 分组：executed / waiting / export / planned
 
 
 class LLMTaskStatus(BaseModel):
@@ -81,7 +84,7 @@ _TASK_METADATA: dict[str, dict[str, str]] = {
     },
     "source_reason_generation": {
         "stage": "scoring",
-        "prompt_template": "source_review.zh.md",
+        "prompt_template": "source_reason_generation.zh.md",
         "expected_trigger": "after_scoring",
     },
     "entity_extraction": {
@@ -121,12 +124,12 @@ _TASK_METADATA: dict[str, dict[str, str]] = {
     },
     "markdown_summary_generation": {
         "stage": "export",
-        "prompt_template": "document_summary.zh.md",
+        "prompt_template": "markdown_summary_generation.zh.md",
         "expected_trigger": "before_export_source_note",
     },
     "final_index_synthesis": {
         "stage": "export",
-        "prompt_template": "final_index.zh.md",
+        "prompt_template": "final_index_synthesis.zh.md",
         "expected_trigger": "export_index",
     },
     "reranking": {
@@ -167,18 +170,37 @@ def get_all_task_info() -> list[LLMTaskInfo]:
         enabled = task_yaml.get("enabled", True)
         implemented = task_yaml.get("implemented", task_name in tasks_config)
         fallback = task_yaml.get("fallback", "")
+        covered_by = task_yaml.get("covered_by", "")
+        wait_for = task_yaml.get("wait_for", "")
+        stage = task_yaml.get("stage", meta.get("stage", "unknown"))
 
         # 确定 implementation_status
-        if not implemented:
+        if covered_by:
+            impl_status = "covered"
+        elif not implemented:
             impl_status = "planned"
         elif not enabled:
             impl_status = "disabled"
         else:
             impl_status = "implemented"
 
+        # 确定 UI 分组
+        if covered_by:
+            group = "covered"
+        elif not implemented:
+            group = "planned"
+        elif stage == "export":
+            group = "export"
+        elif wait_for:
+            group = "waiting"
+        elif not enabled:
+            group = "disabled"
+        else:
+            group = "executed"
+
         results.append(LLMTaskInfo(
             task_name=task_name,
-            stage=meta.get("stage", "unknown"),
+            stage=stage,
             prompt_template=prompt_template,
             prompt_template_exists=prompt_exists,
             expected_trigger=meta.get("expected_trigger", ""),
@@ -186,6 +208,9 @@ def get_all_task_info() -> list[LLMTaskInfo]:
             implemented=implemented,
             fallback=fallback,
             implementation_status=impl_status,
+            covered_by=covered_by,
+            wait_for=wait_for,
+            group=group,
         ))
 
     return results

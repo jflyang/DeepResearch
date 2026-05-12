@@ -158,6 +158,12 @@ class TraceRecorder:
             "level_counts": level_counts,
         }
 
+        # 当前步骤和进度
+        current_step = self._infer_current_step(events)
+        progress_percent = self._infer_progress(events)
+        summary["current_step"] = current_step
+        summary["progress_percent"] = progress_percent
+
         # Report ingestion 专用摘要
         ri_completed = next(
             (e for e in events if e.step == TraceStep.REPORT_INGESTION_COMPLETED), None
@@ -192,6 +198,92 @@ class TraceRecorder:
                 summary["llm_tasks_used"] = llm_tasks_used
 
         return summary
+
+    def _infer_current_step(self, events: list[TraceEvent]) -> str:
+        """从事件列表推断当前执行步骤。"""
+        if not events:
+            return "pending"
+
+        # 步骤优先级（越后面越接近完成）
+        step_order = [
+            TraceStep.TASK_CREATED,
+            TraceStep.LANGUAGE_PLANNING_STARTED,
+            TraceStep.LANGUAGE_PLANNING_FINISHED,
+            TraceStep.QUERY_EXPANSION_STARTED,
+            TraceStep.QUERY_EXPANSION_FINISHED,
+            TraceStep.SEARCH_STARTED,
+            TraceStep.SEARCH_PROVIDER_STARTED,
+            TraceStep.SEARCH_PROVIDER_FINISHED,
+            TraceStep.DEDUPE_STARTED,
+            TraceStep.DEDUPE_FINISHED,
+            TraceStep.SCORING_STARTED,
+            TraceStep.SCORING_FINISHED,
+            TraceStep.DB_SAVE_STARTED,
+            TraceStep.DB_SAVE_FINISHED,
+            TraceStep.TASK_COMPLETED,
+            TraceStep.TASK_FAILED,
+        ]
+
+        # 找到最后出现的已知步骤
+        seen_steps = {e.step for e in events}
+        current = "pending"
+        for step in step_order:
+            if step in seen_steps:
+                current = step
+
+        # 简化步骤名称
+        step_labels = {
+            TraceStep.TASK_CREATED: "task_created",
+            TraceStep.LANGUAGE_PLANNING_STARTED: "language_planning",
+            TraceStep.LANGUAGE_PLANNING_FINISHED: "language_planning",
+            TraceStep.QUERY_EXPANSION_STARTED: "query_expansion",
+            TraceStep.QUERY_EXPANSION_FINISHED: "query_expansion",
+            TraceStep.SEARCH_STARTED: "search",
+            TraceStep.SEARCH_PROVIDER_STARTED: "search",
+            TraceStep.SEARCH_PROVIDER_FINISHED: "search",
+            TraceStep.DEDUPE_STARTED: "dedupe",
+            TraceStep.DEDUPE_FINISHED: "dedupe",
+            TraceStep.SCORING_STARTED: "scoring",
+            TraceStep.SCORING_FINISHED: "scoring",
+            TraceStep.DB_SAVE_STARTED: "db_save",
+            TraceStep.DB_SAVE_FINISHED: "db_save",
+            TraceStep.TASK_COMPLETED: "completed",
+            TraceStep.TASK_FAILED: "failed",
+        }
+        return step_labels.get(current, current)
+
+    def _infer_progress(self, events: list[TraceEvent]) -> int:
+        """从事件列表推断进度百分比。"""
+        if not events:
+            return 0
+
+        seen_steps = {e.step for e in events}
+
+        # 里程碑及其对应进度
+        milestones = [
+            (TraceStep.TASK_CREATED, 5),
+            (TraceStep.LANGUAGE_PLANNING_FINISHED, 15),
+            (TraceStep.QUERY_EXPANSION_FINISHED, 30),
+            (TraceStep.SEARCH_PROVIDER_FINISHED, 60),
+            (TraceStep.DEDUPE_FINISHED, 75),
+            (TraceStep.SCORING_FINISHED, 85),
+            (TraceStep.DB_SAVE_FINISHED, 95),
+            (TraceStep.TASK_COMPLETED, 100),
+            (TraceStep.TASK_FAILED, 100),
+        ]
+
+        progress = 0
+        for step, pct in milestones:
+            if step in seen_steps:
+                progress = max(progress, pct)
+
+        # 搜索阶段细化：根据 provider finished 数量
+        search_finished = sum(1 for e in events if e.step == TraceStep.SEARCH_PROVIDER_FINISHED)
+        if search_finished > 0 and progress < 60:
+            # 搜索进行中，按 provider 数量估算
+            progress = max(progress, 30 + min(search_finished * 5, 30))
+
+        return progress
 
     def clear(self, task_id: str | None = None) -> None:
         """清除事件（测试用）。"""
