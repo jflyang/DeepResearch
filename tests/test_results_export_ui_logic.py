@@ -232,3 +232,85 @@ class TestResolveExportButtonState:
         state = resolve_export_button_state({"configured": True, "exists": True, "writable": False})
         assert state["enabled"] is False
         assert "不可写" in state["message"]
+
+
+# === Export Button State (with task status) ===
+
+
+def get_export_button_state(
+    task_status: str | None,
+    vault_configured: bool,
+    vault_exists: bool,
+    vault_writable: bool,
+    selected_task_id: str | None,
+) -> dict:
+    """完整的导出按钮状态判断。
+
+    Returns:
+        {"visible": bool, "enabled": bool, "reason": str}
+    """
+    if not selected_task_id:
+        return {"visible": False, "enabled": False, "reason": "未选择研究任务"}
+
+    if task_status != "completed":
+        return {"visible": True, "enabled": False, "reason": "研究任务尚未完成"}
+
+    if not vault_configured:
+        return {"visible": True, "enabled": False, "reason": "Vault 未配置"}
+
+    if not vault_exists:
+        return {"visible": True, "enabled": False, "reason": "Vault 路径不存在"}
+
+    if not vault_writable:
+        return {"visible": True, "enabled": False, "reason": "Vault 路径不可写"}
+
+    return {"visible": True, "enabled": True, "reason": ""}
+
+
+class TestGetExportButtonState:
+    def test_completed_task_valid_vault(self):
+        """completed task + valid vault → enabled。"""
+        state = get_export_button_state("completed", True, True, True, "task-1")
+        assert state["visible"] is True
+        assert state["enabled"] is True
+        assert state["reason"] == ""
+
+    def test_missing_vault(self):
+        """missing vault → disabled。"""
+        state = get_export_button_state("completed", False, False, False, "task-1")
+        assert state["visible"] is True
+        assert state["enabled"] is False
+        assert "未配置" in state["reason"]
+
+    def test_running_task(self):
+        """running task → disabled。"""
+        state = get_export_button_state("running", True, True, True, "task-1")
+        assert state["visible"] is True
+        assert state["enabled"] is False
+        assert "尚未完成" in state["reason"]
+
+    def test_no_selected_task(self):
+        """no selected task → not visible。"""
+        state = get_export_button_state(None, True, True, True, None)
+        assert state["visible"] is False
+        assert state["enabled"] is False
+
+    def test_pending_task(self):
+        """pending task → disabled。"""
+        state = get_export_button_state("pending", True, True, True, "task-1")
+        assert state["visible"] is True
+        assert state["enabled"] is False
+
+    def test_vault_not_writable(self):
+        """vault not writable → disabled。"""
+        state = get_export_button_state("completed", True, True, False, "task-1")
+        assert state["visible"] is True
+        assert state["enabled"] is False
+        assert "不可写" in state["reason"]
+
+    def test_vault_path_not_exists(self):
+        """vault path not exists → disabled。"""
+        state = get_export_button_state("completed", True, False, False, "task-1")
+        assert state["visible"] is True
+        assert state["enabled"] is False
+        assert "不存在" in state["reason"]

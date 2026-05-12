@@ -415,48 +415,51 @@ st.divider()
 
 st.subheader("📤 导出到 Obsidian")
 
-try:
-    obsidian_config = client.get_obsidian_settings()
-    vault_configured = obsidian_config.get("configured", False)
-    vault_exists = obsidian_config.get("exists", False)
-    vault_writable = obsidian_config.get("writable", False)
-    vault_path = obsidian_config.get("vault_path", "")
-    vault_usable = vault_configured and vault_exists and vault_writable
-except Exception:
-    vault_usable = False
-    vault_configured = False
-    vault_path = ""
-
-if vault_usable:
-    st.markdown(f"✅ Vault 可用: `{vault_path}`")
-    st.caption(f"导出目标: `{vault_path}/Research/{task['topic']}/index.md`")
-
-    col_export1, col_export2 = st.columns(2)
-    with col_export1:
-        if st.button("📄 导出研究索引", type="primary", key="export_index_btn"):
-            with st.spinner("正在导出研究索引..."):
-                try:
-                    result = client.export_index(task_id)
-                    if result.get("success"):
-                        st.success(f"✅ 已导出到: `{result.get('path', '')}`")
-                        st.caption(f"包含 {result.get('source_count', 0)} 个来源")
-                    else:
-                        st.error(f"导出失败: {result.get('message', '未知错误')}")
-                except Exception as e:
-                    error_msg = str(e)
-                    if "400" in error_msg:
-                        st.error(f"导出失败: Vault 配置问题")
-                    else:
-                        st.error(f"导出失败: {e}")
-
-    with col_export2:
-        st.caption("研究索引包含：必读资料、图书资料、访谈资料、八卦线索等分类清单。")
-elif vault_configured:
-    st.warning(f"⚠️ Vault 路径无效: `{vault_path}`")
-    st.page_link("pages/3_Settings.py", label="前往 Settings 配置 Vault", icon="⚙️")
+if status != "completed":
+    st.warning("⏳ 研究任务尚未完成，完成后才能导出。")
 else:
-    st.info("📁 Obsidian Vault 未配置，导出功能不可用。")
-    st.page_link("pages/3_Settings.py", label="前往 Settings 配置 Vault", icon="⚙️")
+    try:
+        obsidian_config = client.get_obsidian_settings()
+        vault_configured = obsidian_config.get("configured", False)
+        vault_exists = obsidian_config.get("exists", False)
+        vault_writable = obsidian_config.get("writable", False)
+        vault_path = obsidian_config.get("vault_path", "")
+        vault_usable = vault_configured and vault_exists and vault_writable
+    except Exception:
+        vault_usable = False
+        vault_configured = False
+        vault_path = ""
+
+    if vault_usable:
+        st.markdown(f"✅ Vault 可用: `{vault_path}`")
+        st.caption(f"导出目标: `{vault_path}/Research/{task['topic']}/index.md`")
+
+        col_export1, col_export2 = st.columns(2)
+        with col_export1:
+            if st.button("📄 导出研究索引到 Obsidian", type="primary", key="export_index_btn"):
+                with st.spinner("正在导出研究索引..."):
+                    try:
+                        result = client.export_index(task_id)
+                        if result.get("success"):
+                            st.success(f"✅ 已导出到: `{result.get('path', '')}`")
+                            st.caption(f"包含 {result.get('source_count', 0)} 个来源")
+                        else:
+                            st.error(f"导出失败: {result.get('message', '未知错误')}")
+                    except Exception as e:
+                        error_msg = str(e)
+                        if "400" in error_msg:
+                            st.error("导出失败: Vault 配置问题")
+                        else:
+                            st.error(f"导出失败: {e}")
+
+        with col_export2:
+            st.caption("研究索引包含：必读资料、图书资料、访谈资料、八卦线索等分类清单。")
+    elif vault_configured:
+        st.warning(f"⚠️ Vault 路径无效: `{vault_path}`")
+        st.page_link("pages/3_Settings.py", label="前往 Settings 配置 Vault", icon="⚙️")
+    else:
+        st.info("📁 Obsidian Vault 未配置，导出功能不可用。请先到 Settings 配置默认 Obsidian Vault。")
+        st.page_link("pages/3_Settings.py", label="前往 Settings 配置 Vault", icon="⚙️")
 
 st.divider()
 
