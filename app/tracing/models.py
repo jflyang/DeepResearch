@@ -65,6 +65,20 @@ class TraceStep:
     REPORT_INGESTION_FAILED = "report_ingestion_failed"
     LLM_ENHANCEMENT_SKIPPED = "llm_enhancement_skipped"
 
+    # === Crawlee Steps ===
+    CRAWL_CANDIDATES_COLLECTED = "crawl_candidates_collected"
+    CRAWL_CANDIDATE_REVIEW_STARTED = "crawl_candidate_review_started"
+    CRAWL_CANDIDATE_REVIEW_FINISHED = "crawl_candidate_review_finished"
+    CRAWL_CANDIDATE_SKIPPED = "crawl_candidate_skipped"
+    CRAWLEE_BATCH_STARTED = "crawlee_batch_started"
+    CRAWLEE_URL_STARTED = "crawlee_url_started"
+    CRAWLEE_URL_FINISHED = "crawlee_url_finished"
+    CRAWLEE_URL_FAILED = "crawlee_url_failed"
+    CRAWLEE_BATCH_FINISHED = "crawlee_batch_finished"
+    CRAWL_SAVED_DOCUMENT = "crawl_saved_document"
+    CRAWL_AUTO_EXPORT_STARTED = "crawl_auto_export_started"
+    CRAWL_AUTO_EXPORT_FINISHED = "crawl_auto_export_finished"
+
 
 class TracePhase:
     """Trace 阶段常量。"""
@@ -77,6 +91,7 @@ class TracePhase:
     EXTRACTION = "extraction"
     EXPORT = "export"
     INGESTION = "ingestion"
+    CRAWLING = "crawling"
 
 
 class TraceEvent(BaseModel):

@@ -69,6 +69,10 @@ def _render_source_list(items: list[dict], api_client: APIClient, show_origin: b
                 origin = item.get("source_origin", "")
                 if origin:
                     detail_parts.append(get_source_origin_label(origin))
+            if item.get("crawl_status") and item["crawl_status"] != "pending":
+                crawl_badge = {"succeeded": "🕷️✅", "failed": "🕷️❌", "skipped": "🕷️⏭️", "crawling": "🕷️⏳"}.get(item["crawl_status"], "")
+                if crawl_badge:
+                    detail_parts.append(crawl_badge)
             if reason:
                 detail_parts.append(f"💡 {reason}")
             if detail_parts:
@@ -316,6 +320,19 @@ def _render_trace_view(task_id: str, api_client: APIClient):
         "auto_export_started": "开始导出到 Obsidian",
         "auto_export_finished": "导出完成",
         "auto_export_failed": "导出失败",
+        # Crawlee 阶段
+        "crawl_candidates_collected": "搜索候选已收集",
+        "crawl_candidate_review_started": "开始候选相关性审查",
+        "crawl_candidate_review_finished": "候选审查完成",
+        "crawl_candidate_skipped": "候选已跳过",
+        "crawlee_batch_started": "开始 Crawlee 批量抓取",
+        "crawlee_url_started": "正在抓取 URL",
+        "crawlee_url_finished": "URL 抓取成功",
+        "crawlee_url_failed": "URL 抓取失败",
+        "crawlee_batch_finished": "Crawlee 批量抓取完成",
+        "crawl_saved_document": "抓取文档已保存",
+        "crawl_auto_export_started": "开始抓取结果导出",
+        "crawl_auto_export_finished": "抓取结果导出完成",
     }
 
     try:

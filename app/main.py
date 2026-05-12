@@ -11,6 +11,7 @@ from api.routes_sources import router as sources_router
 from api.routes_tasks import router as tasks_router
 from app.api.routes_report_ingestion import router as report_ingestion_router
 from app.api.routes_settings import router as settings_router
+from app.api.routes_crawler import router as crawler_router
 from core.errors import ResearchError
 from core.logging import setup_logging
 from db.session import init_db
@@ -84,6 +85,7 @@ app.include_router(sources_router, prefix="/sources", tags=["sources"])
 app.include_router(export_router, prefix="/research", tags=["export"])
 app.include_router(report_ingestion_router, prefix="/research", tags=["report-ingestion"])
 app.include_router(settings_router)
+app.include_router(crawler_router, prefix="/crawler", tags=["crawler"])
 
 
 # === Health ===
@@ -92,6 +94,7 @@ app.include_router(settings_router)
 @app.get("/settings/health")
 async def health():
     from core.config import get_settings
+    from app.crawlers.crawlee_service import is_crawlee_available, is_playwright_available
 
     settings = get_settings()
     return {
@@ -103,6 +106,13 @@ async def health():
                 "enabled": settings.enable_google_books,
                 "available": settings.google_books_available,
             },
+        },
+        "crawlee": {
+            "enabled": settings.enable_crawlee,
+            "installed": is_crawlee_available(),
+            "playwright_available": is_playwright_available(),
+            "mode": settings.crawlee_default_mode,
+            "max_concurrency": settings.crawlee_max_concurrency,
         },
         "obsidian_configured": settings.obsidian_configured,
         "llm": {

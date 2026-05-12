@@ -122,6 +122,26 @@ services:
     enabled: true
     required_env: []
 
+  crawlee:
+    type: crawl
+    enabled_env: ENABLE_CRAWLEE
+    required_env: []
+    requires_api_key: false
+    note_when_no_key: "HTTP mode available without additional dependencies"
+
+  google_custom_search:
+    type: search
+    enabled_env: ENABLE_GOOGLE_CUSTOM_SEARCH
+    required_env:
+      - GOOGLE_CUSTOM_SEARCH_API_KEY
+      - GOOGLE_CUSTOM_SEARCH_CX
+
+  serpapi:
+    type: search
+    enabled_env: ENABLE_SERPAPI
+    required_env:
+      - SERPAPI_API_KEY
+
   obsidian:
     type: export
     required_env:

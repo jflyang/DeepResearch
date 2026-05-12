@@ -452,3 +452,63 @@ class APIClient:
         r = httpx.post(self._url("/research/tasks/worker/stop"), timeout=10.0)
         r.raise_for_status()
         return r.json()
+
+    # === Crawler (Crawlee) ===
+
+    def crawl_url(self, url: str, topic: str | None = None, mode: str = "adaptive") -> dict:
+        """抓取单个 URL 正文。"""
+        r = httpx.post(
+            self._url("/crawler/crawl-url"),
+            json={"url": url, "topic": topic, "mode": mode},
+            timeout=60.0,
+        )
+        r.raise_for_status()
+        return r.json()
+
+    def crawl_batch(
+        self,
+        candidates: list[dict],
+        topic: str | None = None,
+        mode: str = "adaptive",
+        max_pages: int = 30,
+    ) -> dict:
+        """批量抓取候选 URL。"""
+        r = httpx.post(
+            self._url("/crawler/crawl-batch"),
+            json={
+                "topic": topic,
+                "candidates": candidates,
+                "mode": mode,
+                "max_pages": max_pages,
+            },
+            timeout=TIMEOUT,
+        )
+        r.raise_for_status()
+        return r.json()
+
+    def review_candidates(
+        self,
+        topic: str,
+        candidates: list[dict],
+        canonical_topic: str | None = None,
+        depth: str = "top30",
+    ) -> dict:
+        """审查候选 URL 相关性（不抓取）。"""
+        r = httpx.post(
+            self._url("/crawler/review-candidates"),
+            json={
+                "topic": topic,
+                "canonical_topic": canonical_topic,
+                "candidates": candidates,
+                "depth": depth,
+            },
+            timeout=30.0,
+        )
+        r.raise_for_status()
+        return r.json()
+
+    def get_crawler_status(self) -> dict:
+        """获取 Crawlee 服务状态。"""
+        r = httpx.get(self._url("/crawler/status"), timeout=10.0)
+        r.raise_for_status()
+        return r.json()

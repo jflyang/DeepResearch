@@ -1,0 +1,42 @@
+# Crawlee 网页抓取策略配置
+# 控制 URL 抓取行为、相关性过滤、搜索结果获取方式
+
+crawlee:
+  enabled: true
+  default_mode: adaptive  # http | browser | adaptive
+  max_pages_per_task: 30
+  max_pages_deep: 100
+  timeout_seconds: 30
+  max_concurrency: 3
+  respect_robots_txt: true
+  user_agent: "ResearchCollectorBot/0.1"
+  browser_fallback: true
+  save_html: false
+  save_screenshot: false
+  min_content_chars_for_success: 200
+
+# Google 搜索结果获取配置
+# 重要：不建议直接爬 Google 搜索结果 HTML 页面
+# 优先使用合规 API（Google Custom Search JSON API / SerpAPI / Serper.dev）
+google_search:
+  enabled: false
+  provider: google_custom_search  # google_custom_search | serpapi | serper
+  max_results: 30
+  # 直接爬取 Google HTML（默认关闭，有被封禁风险）
+  allow_direct_scrape: false
+
+# 相关性过滤配置
+relevance_filter:
+  enabled: true
+  min_score: 0.55
+  # LLM 辅助判断（可选，默认关闭）
+  llm_enabled: false
+  top_n_for_llm_review: 30
+
+# 自动抓取配置（研究流程中自动触发）
+auto_crawl:
+  enabled: true
+  min_source_level: "A"
+  max_urls_per_task: 30
+  crawl_search_top_n: 30
+  deep_mode_top_n: 100

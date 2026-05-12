@@ -114,6 +114,16 @@ _STEP_ZH_MAP = {
     "task_dequeued": "任务开始执行",
     "task_queue_completed": "队列任务完成",
     "task_queue_failed": "队列任务失败",
+    # Crawlee 阶段
+    "crawl_candidates_collected": "搜索候选已收集",
+    "crawl_candidate_review_started": "开始候选相关性审查",
+    "crawl_candidate_review_finished": "候选审查完成",
+    "crawlee_batch_started": "开始 Crawlee 批量抓取",
+    "crawlee_url_started": "正在抓取 URL",
+    "crawlee_url_finished": "URL 抓取成功",
+    "crawlee_url_failed": "URL 抓取失败",
+    "crawlee_batch_finished": "Crawlee 批量抓取完成",
+    "crawl_saved_document": "抓取文档已保存",
 }
 
 
@@ -210,6 +220,36 @@ if not running_task_id:
                     auto_export = st.checkbox("完成后自动导出到 Obsidian", value=vault_usable, disabled=not vault_usable, help="自动生成 index.md 和 source notes")
                     if not vault_usable:
                         st.caption("⚠️ 请先到 Settings 配置 Vault 路径")
+
+            # 高级选项：Crawlee 网页深度抓取
+            with st.expander("🕷️ 高级选项：Crawlee 网页深度抓取", expanded=False):
+                crawl_col1, crawl_col2 = st.columns(2)
+                with crawl_col1:
+                    enable_crawlee = st.checkbox(
+                        "使用 Crawlee 自动抓取有价值网页",
+                        value=False,
+                        help="对搜索结果中的高相关 URL 使用 Crawlee 引擎抓取正文",
+                    )
+                    crawl_depth = st.selectbox(
+                        "搜索候选深度",
+                        ["top30", "top50", "top100"],
+                        index=0,
+                        help="top30=标准模式，top100=深度模式（更多候选但耗时更长）",
+                    )
+                with crawl_col2:
+                    crawl_max_pages = st.selectbox(
+                        "最大抓取页面数",
+                        [10, 30, 50, 100],
+                        index=1,
+                        help="实际抓取的最大页面数（经过相关性过滤后）",
+                    )
+                    crawl_mode = st.selectbox(
+                        "抓取模式",
+                        ["adaptive", "http", "browser"],
+                        index=0,
+                        help="adaptive=自动选择，http=仅HTTP，browser=使用浏览器渲染",
+                    )
+                st.caption("💡 Crawlee 仅抓取经过相关性过滤的有价值 URL，不会抓取所有搜索结果。")
 
             submitted = st.form_submit_button("🚀 开始研究", type="primary")
 

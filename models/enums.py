@@ -99,6 +99,8 @@ class SearchSource(StrEnum):
     CROSSREF = "crossref"
     ARXIV = "arxiv"
     WIKIPEDIA = "wikipedia"
+    GOOGLE_CUSTOM_SEARCH = "google_custom_search"
+    SERPAPI = "serpapi"
 
 
 class SourceLevel(StrEnum):
@@ -160,3 +162,45 @@ class CardType(StrEnum):
     QUOTE = "quote"
     SUMMARY = "summary"
     OTHER = "other"
+
+
+# === Crawlee 模块枚举 ===
+
+
+class CrawlMode(StrEnum):
+    """抓取模式。"""
+
+    HTTP = "http"
+    BROWSER = "browser"
+    ADAPTIVE = "adaptive"
+
+
+class CrawlStatus(StrEnum):
+    """抓取状态。"""
+
+    PENDING = "pending"
+    CRAWLING = "crawling"
+    SUCCEEDED = "succeeded"
+    FAILED = "failed"
+    SKIPPED = "skipped"
+
+
+class CrawlSkipReason(StrEnum):
+    """跳过抓取的原因。"""
+
+    LOW_RELEVANCE = "low_relevance"
+    DUPLICATE_URL = "duplicate_url"
+    BLOCKED_DOMAIN = "blocked_domain"
+    UNSUPPORTED_CONTENT_TYPE = "unsupported_content_type"
+    ROBOTS_DISALLOWED = "robots_disallowed"
+    ALREADY_FETCHED = "already_fetched"
+    NO_URL = "no_url"
+    MAX_LIMIT_REACHED = "max_limit_reached"
+
+
+class SearchResultDepth(StrEnum):
+    """搜索结果候选深度。"""
+
+    TOP30 = "top30"
+    TOP50 = "top50"
+    TOP100 = "top100"

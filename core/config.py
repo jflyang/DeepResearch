@@ -140,6 +140,26 @@ class Settings(BaseSettings):
     scoring_originality_weight: float = 0.2
     scoring_gossip_penalty: float = 0.1
 
+    # === Crawlee ===
+    enable_crawlee: bool = True
+    crawlee_default_mode: str = "adaptive"
+    crawlee_max_concurrency: int = 3
+    crawlee_timeout_seconds: int = 30
+    crawlee_respect_robots_txt: bool = True
+
+    # === Google Custom Search ===
+    enable_google_custom_search: bool = False
+    google_custom_search_api_key: str = ""
+    google_custom_search_cx: str = ""
+
+    # === SerpAPI ===
+    enable_serpapi: bool = False
+    serpapi_api_key: str = ""
+
+    # === Serper ===
+    enable_serper: bool = False
+    serper_api_key: str = ""
+
     # === Computed Properties ===
 
     @property
@@ -177,6 +197,18 @@ class Settings(BaseSettings):
     @property
     def obsidian_configured(self) -> bool:
         return bool(self.obsidian_vault_path)
+
+    @property
+    def google_custom_search_available(self) -> bool:
+        return self.enable_google_custom_search and bool(self.google_custom_search_api_key) and bool(self.google_custom_search_cx)
+
+    @property
+    def serpapi_available(self) -> bool:
+        return self.enable_serpapi and bool(self.serpapi_api_key)
+
+    @property
+    def crawlee_enabled(self) -> bool:
+        return self.enable_crawlee
 
     @property
     def obsidian_path(self) -> Path:
