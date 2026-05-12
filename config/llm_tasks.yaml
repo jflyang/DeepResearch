@@ -209,6 +209,20 @@ tasks:
 
   # === Export Stage ===
 
+  content_translation:
+    enabled: true
+    implemented: true
+    stage: export
+    prompt_template: content_translation.zh.md
+    temperature: 0.1
+    max_input_chars: 15000
+    max_output_tokens: 8000
+    timeout_seconds: 300
+    json_required: false
+    retry_on_parse_error: false
+    max_retries: 0
+    fallback: skip_translation
+
   markdown_summary_generation:
     enabled: true
     implemented: true

@@ -336,6 +336,16 @@ async def _do_extract_and_save(source_id: str):
     except Exception as e:
         logger.warning("extracted_doc_persist_failed source_id=%s error=%s", source_id, str(e)[:100])
 
+    # 如果是英文内容，调用 LLM 翻译为中英对照
+    try:
+        if doc.content and _is_english_content(doc.content):
+            translated = await _translate_to_bilingual(doc.content, doc.title)
+            if translated:
+                doc.content = translated
+                logger.info("content_translated source_id=%s chars=%d", source_id, len(translated))
+    except Exception as e:
+        logger.warning("translation_failed source_id=%s error=%s, using original", source_id, str(e)[:200])
+
     # 直接保存 .md 到 sources/ 文件夹
     try:
         _save_source_note_to_disk(target_item, doc, task_id)
@@ -481,3 +491,65 @@ async def get_extraction_status(source_id: str):
         "status": "unknown",
         "error": None,
     }
+
+
+# === 英文内容检测与翻译 ===
+
+
+def _is_english_content(text: str) -> bool:
+    """检测内容是否主要为英文。
+
+    策略：取前 500 个字符，统计 ASCII 字母占比。
+    如果 ASCII 字母占比 > 60%，认为是英文内容。
+    """
+    sample = text[:500]
+    if not sample:
+        return False
+    ascii_letters = sum(1 for c in sample if c.isascii() and c.isalpha())
+    total_letters = sum(1 for c in sample if c.isalpha())
+    if total_letters == 0:
+        return False
+    return (ascii_letters / total_letters) > 0.6
+
+
+async def _translate_to_bilingual(content: str, title: str) -> str | None:
+    """调用 LLM 将英文内容翻译为中英对照格式。
+
+    如果 LLM 不可用或翻译失败，返回 None（使用原文）。
+    内容过长时分段翻译。
+    """
+    from app.ai.gateway import AIGateway
+    from app.ai.prompts import PromptStore
+    from app.ai.router import LLMRouter
+
+    try:
+        router = LLMRouter()
+        prompt_store = PromptStore()
+        gateway = AIGateway(router=router, prompt_store=prompt_store)
+    except Exception as e:
+        logger.debug("llm_not_available_for_translation error=%s", str(e)[:100])
+        return None
+
+    # 限制翻译内容长度（避免超出 LLM 上下文）
+    max_chars = 12000
+    content_to_translate = content[:max_chars]
+
+    try:
+        translated = await gateway.run_text(
+            task_name="content_translation",
+            payload={"title": title, "content": content_to_translate},
+            language="zh",
+        )
+
+        if not translated or len(translated.strip()) < 50:
+            return None
+
+        # 如果原文被截断，附加剩余原文
+        if len(content) > max_chars:
+            translated += "\n\n---\n\n# 原文剩余部分（未翻译）\n\n" + content[max_chars:]
+
+        return translated
+
+    except Exception as e:
+        logger.warning("llm_translation_failed error=%s", str(e)[:200])
+        return None

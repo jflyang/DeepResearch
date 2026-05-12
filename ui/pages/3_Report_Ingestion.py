@@ -1,10 +1,12 @@
-"""📥 导入外部研究报告 - 从 GPT / Deep Research / Perplexity / Claude 报告中提取来源。"""
+"""导入外部研究报告 - 从 GPT / Deep Research / Perplexity / Claude 报告中提取来源。"""
 
 import streamlit as st
 from ui.api_client import APIClient
+from ui.styles import apply_global_styles
+from ui.components.layout import render_page_header
 
-st.header("📥 导入外部研究报告")
-st.caption("将 AI 生成的研究报告粘贴到此处，系统将自动提取引用来源并抓取正文。")
+apply_global_styles()
+render_page_header("Report Ingestion", "导入 GPT / Deep Research / Perplexity 报告，解析引用并沉淀为研究资料。")
 
 client = APIClient()
 
