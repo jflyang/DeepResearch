@@ -763,6 +763,58 @@ else:
 
 st.divider()
 
+# === 🧹 内容清洗与研究合成 ===
+
+st.subheader("🧹 内容清洗与研究合成")
+
+_extracted_count = len(extracted_items)
+_can_synthesize = (
+    status == "completed"
+    and _extracted_count > 0
+    and vault_usable if "vault_usable" in dir() else False
+)
+
+syn_col1, syn_col2, syn_col3 = st.columns(3)
+syn_col1.metric("已抓取正文", _extracted_count)
+syn_col2.metric("可参与合成来源", _extracted_count)
+syn_col3.metric("总来源数", total)
+
+if status != "completed":
+    st.warning("⏳ 任务尚未完成，完成后才能进行内容合成。")
+elif _extracted_count == 0:
+    st.warning("⚠️ 请先抓取 S/A/B 级来源正文，再进行内容合成。")
+elif not (vault_usable if "vault_usable" in dir() else False):
+    st.info("📁 请先到 Settings 配置 Obsidian Vault 路径。")
+    st.page_link("pages/9_Settings.py", label="前往 Settings 配置 Vault", icon="⚙️")
+else:
+    st.caption(f"将从 sources/ 目录读取 {_extracted_count} 篇已清洗的 .md 文件，合并为研究文档 index.md。")
+
+    if st.button("🧹 清洗并合成研究文档", type="primary", key="synthesize_btn"):
+        with st.spinner("正在从 sources/ 读取资料并合成研究文档……"):
+            try:
+                syn_result = client.synthesize_task(task_id)
+                if syn_result.get("synthesized"):
+                    st.success("✅ 研究文档合成完成！")
+                    sr_col1, sr_col2 = st.columns(2)
+                    sr_col1.metric("合并来源数", syn_result.get("source_count", 0))
+                    if syn_result.get("index_path"):
+                        st.markdown(f"📄 **index.md 路径：** `{syn_result['index_path']}`")
+                else:
+                    st.error(f"合成失败: {syn_result.get('error', '未知错误')}")
+            except Exception as e:
+                error_msg = str(e)
+                if "400" in error_msg:
+                    try:
+                        import json as _json
+                        detail = _json.loads(error_msg.split(":", 1)[-1] if ":" in error_msg else error_msg)
+                        st.error(f"合成失败: {detail.get('detail', error_msg)}")
+                    except Exception:
+                        st.error(f"合成失败: {error_msg}")
+                else:
+                    st.error(f"合成失败: {e}")
+
+st.divider()
+
 # === 筛选与排序 ===
 
 st.subheader("🔍 筛选与排序")

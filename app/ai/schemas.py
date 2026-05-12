@@ -321,3 +321,83 @@ class ImportedSourcePrioritizationOutput(BaseModel):
     """来源优先级排序输出。"""
 
     items: list[PrioritizedReference] = Field(default_factory=list)
+
+
+# === Content Normalization & Research Synthesis LLM Schemas ===
+
+
+class NormalizedClaimLLMItem(BaseModel):
+    """LLM 输出的单条归一化事实。"""
+
+    claim: str = Field(default="", max_length=500)
+    normalized_claim: str = Field(default="", max_length=500)
+    claim_type: str = Field(default="fact", max_length=30)
+    confidence: str = Field(default="medium", max_length=20)
+    evidence_text: str = Field(default="", max_length=300)
+    people: list[str] = Field(default_factory=list)
+    organizations: list[str] = Field(default_factory=list)
+    places: list[str] = Field(default_factory=list)
+    dates: list[str] = Field(default_factory=list)
+    concepts: list[str] = Field(default_factory=list)
+    importance: int = Field(default=3, ge=1, le=5)
+    needs_verification: bool = False
+    verification_reason: str | None = Field(default=None, max_length=300)
+    is_quote: bool = False
+
+
+class ContentNormalizationOutput(BaseModel):
+    """内容归一化 LLM 输出。"""
+
+    summary: str = Field(default="", max_length=1000)
+    claims: list[NormalizedClaimLLMItem] = Field(default_factory=list)
+    key_people: list[str] = Field(default_factory=list)
+    key_places: list[str] = Field(default_factory=list)
+    key_concepts: list[str] = Field(default_factory=list)
+
+
+class DeduplicationGroupLLMItem(BaseModel):
+    """LLM 输出的去重分组。"""
+
+    canonical_claim: str = Field(default="", max_length=500)
+    claim_indices: list[int] = Field(default_factory=list)
+    confidence_boost: bool = False
+    merged_claim: str = Field(default="", max_length=500)
+
+
+class DeduplicationConflictLLMItem(BaseModel):
+    """LLM 输出的冲突检测。"""
+
+    topic_claim: str = Field(default="", max_length=300)
+    conflicting_indices: list[int] = Field(default_factory=list)
+    explanation: str = Field(default="", max_length=500)
+
+
+class CrossSourceDeduplicationOutput(BaseModel):
+    """跨来源去重 LLM 输出。"""
+
+    groups: list[DeduplicationGroupLLMItem] = Field(default_factory=list)
+    conflicts: list[DeduplicationConflictLLMItem] = Field(default_factory=list)
+
+
+class SynthesisSectionLLMItem(BaseModel):
+    """LLM 输出的合成章节。"""
+
+    heading: str = Field(default="", max_length=100)
+    section_type: str = Field(default="confirmed_facts", max_length=30)
+    content: str = Field(default="", max_length=5000)
+    referenced_claim_indices: list[int] = Field(default_factory=list)
+
+
+class ResearchSynthesisOutput(BaseModel):
+    """研究合成 LLM 输出。"""
+
+    overview: str = Field(default="", max_length=3000)
+    executive_summary: str = Field(default="", max_length=1500)
+    sections: list[SynthesisSectionLLMItem] = Field(default_factory=list)
+    timeline: list[str] = Field(default_factory=list)
+    key_people: list[dict] = Field(default_factory=list)
+    key_places: list[dict] = Field(default_factory=list)
+    key_concepts: list[dict] = Field(default_factory=list)
+    controversies: list[str] = Field(default_factory=list)
+    unresolved_questions: list[str] = Field(default_factory=list)
+    suggested_next_steps: list[str] = Field(default_factory=list)

@@ -278,6 +278,23 @@ class APIClient:
         r.raise_for_status()
         return r.json()
 
+    # === Research Synthesis ===
+
+    def synthesize_task(self, task_id: str) -> dict:
+        """执行完整合成：归一化 → 去重 → 合成 → 写 index.md。"""
+        r = httpx.post(
+            self._url(f"/research/tasks/{task_id}/synthesize"),
+            timeout=180.0,  # 合成可能较慢
+        )
+        r.raise_for_status()
+        return r.json()
+
+    def get_synthesis_status(self, task_id: str) -> dict:
+        """获取最近一次 synthesis 状态。"""
+        r = httpx.get(self._url(f"/research/tasks/{task_id}/synthesis"), timeout=10.0)
+        r.raise_for_status()
+        return r.json()
+
     # === Report Ingestion ===
 
     def get_service_priority(self) -> dict:

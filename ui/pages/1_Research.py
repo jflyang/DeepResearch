@@ -214,10 +214,16 @@ if not running_task_id:
             with st.expander("⚙️ 高级选项：自动抓取与导出", expanded=False):
                 auto_col1, auto_col2 = st.columns(2)
                 with auto_col1:
-                    auto_fetch = st.checkbox("自动抓取 A/S 级来源", value=True, help="研究完成后自动抓取高可信来源的正文")
+                    auto_fetch = st.checkbox("自动抓取 S/A/B 级来源", value=True, help="研究完成后自动抓取高可信来源的正文（S/A/B 级）")
                     auto_analyze = st.checkbox("自动分析抓取正文", value=True, help="使用 LLM 生成中文摘要、关键事实、故事点")
                 with auto_col2:
                     auto_export = st.checkbox("完成后自动导出到 Obsidian", value=vault_usable, disabled=not vault_usable, help="自动生成 index.md 和 source notes")
+                    auto_synthesize = st.checkbox(
+                        "自动清洗并合成研究文档",
+                        value=vault_usable,
+                        disabled=not vault_usable,
+                        help="抓取正文后自动执行内容归一化、跨来源去重、研究合成，生成高质量 index.md",
+                    )
                     if not vault_usable:
                         st.caption("⚠️ 请先到 Settings 配置 Vault 路径")
 

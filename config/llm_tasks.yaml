@@ -44,11 +44,15 @@ tasks:
 
   query_translation:
     enabled: true
-    implemented: false
+    implemented: true
     stage: planning
+    prompt_template: query_translation.zh.md
     temperature: 0.1
-    max_input_chars: 1000
-    max_output_tokens: 500
+    max_input_chars: 2000
+    max_output_tokens: 800
+    json_required: true
+    retry_on_parse_error: true
+    max_retries: 1
     fallback: dictionary_or_rule_translation
 
   # === Scoring Stage ===
@@ -154,6 +158,54 @@ tasks:
     max_input_chars: 10000
     max_output_tokens: 1800
     fallback: rule_based_cards
+
+  # === Content Normalization & Synthesis Stage ===
+
+  content_normalization:
+    enabled: true
+    implemented: true
+    stage: synthesis
+    wait_for: extraction
+    prompt_template: content_normalization.zh.md
+    provider: ${ACTIVE_LLM_PROVIDER}
+    model: ${ACTIVE_LLM_MODEL}
+    temperature: 0.1
+    max_input_chars: 12000
+    max_output_tokens: 2200
+    json_required: true
+    retry_on_parse_error: true
+    max_retries: 1
+    fallback: rule_based_content_normalization
+
+  cross_source_deduplication:
+    enabled: true
+    implemented: true
+    stage: synthesis
+    prompt_template: cross_source_deduplication.zh.md
+    provider: ${ACTIVE_LLM_PROVIDER}
+    model: ${ACTIVE_LLM_MODEL}
+    temperature: 0.1
+    max_input_chars: 12000
+    max_output_tokens: 2200
+    json_required: true
+    retry_on_parse_error: true
+    max_retries: 1
+    fallback: rule_based_claim_grouping
+
+  research_synthesis:
+    enabled: true
+    implemented: true
+    stage: synthesis
+    prompt_template: research_synthesis.zh.md
+    provider: ${ACTIVE_LLM_PROVIDER}
+    model: ${ACTIVE_LLM_MODEL}
+    temperature: 0.2
+    max_input_chars: 16000
+    max_output_tokens: 3000
+    json_required: true
+    retry_on_parse_error: true
+    max_retries: 1
+    fallback: rule_based_research_synthesis
 
   # === Export Stage ===
 

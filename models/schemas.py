@@ -4,16 +4,18 @@ from datetime import UTC, datetime
 from enum import StrEnum
 from uuid import uuid4
 
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, field_validator, model_validator
 
 from models.enums import (
     CardType,
+    ClaimConfidence,
     Confidence,
     Depth,
     DownloadStatus,
     EntityType,
     Language,
     LanguageCode,
+    NormalizedClaimType,
     ReferenceStatus,
     ReferenceType,
     ResearchTaskType,
@@ -21,6 +23,7 @@ from models.enums import (
     SearchStrategy,
     SourceLevel,
     SourceType,
+    SynthesisSectionType,
     TaskMode,
     TaskStatus,
 )
@@ -335,3 +338,99 @@ class ResearchTaskManagementResponse(BaseModel):
     status: str
     message: str
     new_task_id: str | None = None
+
+
+# === Content Normalization & Research Synthesis ===
+
+
+class NormalizedContentUnit(BaseModel):
+    """归一化内容单元 - 从已抓取正文中提取的单条结构化事实。"""
+
+    id: str | None = None
+    document_id: str
+    source_id: str
+    source_title: str
+    source_url: str | None = None
+    source_level: str | None = None
+    claim_type: NormalizedClaimType = NormalizedClaimType.UNKNOWN
+    claim: str
+    normalized_claim: str
+    evidence_text: str | None = None
+    people: list[str] = Field(default_factory=list)
+    organizations: list[str] = Field(default_factory=list)
+    places: list[str] = Field(default_factory=list)
+    dates: list[str] = Field(default_factory=list)
+    concepts: list[str] = Field(default_factory=list)
+    confidence: ClaimConfidence = ClaimConfidence.MEDIUM
+    source_language: str | None = None
+    output_language: str = "zh"
+    importance: int = Field(default=3, ge=1, le=5)
+    needs_verification: bool = False
+    verification_reason: str | None = None
+
+
+class NormalizedDocumentAnalysis(BaseModel):
+    """归一化文档分析结果 - 单篇已抓取文档的结构化分析。"""
+
+    document_id: str
+    source_id: str
+    source_title: str
+    source_url: str | None = None
+    summary: str = ""
+    main_claims: list[NormalizedContentUnit] = Field(default_factory=list)
+    timeline_events: list[NormalizedContentUnit] = Field(default_factory=list)
+    story_points: list[NormalizedContentUnit] = Field(default_factory=list)
+    key_people: list[str] = Field(default_factory=list)
+    key_places: list[str] = Field(default_factory=list)
+    key_concepts: list[str] = Field(default_factory=list)
+    quotes: list[NormalizedContentUnit] = Field(default_factory=list)
+    verification_needed: list[NormalizedContentUnit] = Field(default_factory=list)
+
+
+class DeduplicatedClaimGroup(BaseModel):
+    """去重合并后的事实组 - 跨来源合并同一事实的不同表述。"""
+
+    group_id: str | None = None
+    normalized_claim: str
+    claim_type: str = "fact"
+    merged_claim: str
+    supporting_sources: list[dict] = Field(default_factory=list)
+    conflicting_sources: list[dict] = Field(default_factory=list)
+    evidence_texts: list[str] = Field(default_factory=list)
+    people: list[str] = Field(default_factory=list)
+    places: list[str] = Field(default_factory=list)
+    dates: list[str] = Field(default_factory=list)
+    concepts: list[str] = Field(default_factory=list)
+    confidence: ClaimConfidence = ClaimConfidence.MEDIUM
+    importance: int = Field(default=3, ge=1, le=5)
+    needs_verification: bool = False
+
+    @model_validator(mode="after")
+    def confirmed_must_have_sources(self):
+        """confidence=high 时必须有 supporting_sources。"""
+        if self.confidence == ClaimConfidence.HIGH and not self.supporting_sources:
+            raise ValueError(
+                "confirmed fact (confidence=high) must have at least one supporting_source"
+            )
+        return self
+
+
+class SynthesizedResearchDocument(BaseModel):
+    """合成研究文档 - 最终输出的结构化研究成果。"""
+
+    task_id: str
+    topic: str
+    canonical_topic: str | None = None
+    overview: str = ""
+    executive_summary: str = ""
+    confirmed_facts: list[DeduplicatedClaimGroup] = Field(default_factory=list)
+    timeline: list[DeduplicatedClaimGroup] = Field(default_factory=list)
+    key_people: list[dict] = Field(default_factory=list)
+    key_places: list[dict] = Field(default_factory=list)
+    key_concepts: list[dict] = Field(default_factory=list)
+    story_points: list[DeduplicatedClaimGroup] = Field(default_factory=list)
+    controversies: list[DeduplicatedClaimGroup] = Field(default_factory=list)
+    verification_needed: list[DeduplicatedClaimGroup] = Field(default_factory=list)
+    source_map: list[dict] = Field(default_factory=list)
+    suggested_next_steps: list[str] = Field(default_factory=list)
+    generated_at: str = Field(default_factory=lambda: datetime.now(UTC).strftime("%Y-%m-%d %H:%M"))

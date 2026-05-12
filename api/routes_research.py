@@ -678,3 +678,89 @@ def _ensure_task_exists(task_id: str) -> None:
             raise HTTPException(status_code=404, detail="Task not found")
     finally:
         session.close()
+
+
+# === Content Normalization & Research Synthesis ===
+
+
+@router.post("/tasks/{task_id}/synthesize")
+async def synthesize_task(task_id: str):
+    """执行完整合成：从 sources/ 目录读取已清洗的 .md 文件，合并为 index.md。"""
+    _ensure_task_exists(task_id)
+
+    # 获取 task 信息
+    session = get_session()
+    try:
+        repo = TaskRepository(session)
+        row = repo.get_task(task_id)
+        if not row:
+            raise HTTPException(status_code=404, detail="Task not found")
+        topic = row.topic
+        obsidian_path = row.obsidian_path or ""
+    finally:
+        session.close()
+
+    # 获取 vault 路径
+    if not obsidian_path:
+        from core.config import get_settings
+        settings = get_settings()
+        if settings.obsidian_configured:
+            obsidian_path = str(settings.obsidian_path)
+
+    if not obsidian_path:
+        raise HTTPException(status_code=400, detail="Obsidian Vault 未配置。")
+
+    # 调用文件驱动的合成服务
+    from app.services.file_based_synthesis_service import synthesize_from_source_files
+
+    result = synthesize_from_source_files(vault_path=obsidian_path, topic=topic)
+
+    if not result["success"]:
+        raise HTTPException(status_code=400, detail=result["error"])
+
+    return {
+        "task_id": task_id,
+        "synthesized": True,
+        "source_count": result["source_count"],
+        "index_path": result["index_path"],
+    }
+
+
+@router.post("/tasks/{task_id}/normalize")
+async def normalize_task(task_id: str):
+    """只执行归一化，返回 normalization summary（不写 index）。"""
+    _ensure_task_exists(task_id)
+
+    # 检查是否有已抓取文档
+    session = get_session()
+    try:
+        src_repo = SourceRepository(session)
+        sources = src_repo.get_by_task(task_id)
+        extracted = [s for s in sources if s.download_status in ("extracted", "exported")]
+        if not extracted:
+            raise HTTPException(
+                status_code=400,
+                detail="请先抓取 A/S 级来源正文，再进行内容归一化。",
+            )
+    finally:
+        session.close()
+
+    return {
+        "task_id": task_id,
+        "status": "normalization_available",
+        "extracted_count": len(extracted),
+        "message": "请使用 /synthesize 端点执行完整合成流程。",
+    }
+
+
+@router.get("/tasks/{task_id}/synthesis")
+async def get_synthesis_status(task_id: str):
+    """返回最近一次 synthesis summary。"""
+    _ensure_task_exists(task_id)
+
+    # 当前不持久化 synthesis，返回 not_available
+    return {
+        "task_id": task_id,
+        "available": False,
+        "message": "Synthesis 结果未持久化，请调用 POST /synthesize 重新生成。",
+    }

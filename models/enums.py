@@ -204,3 +204,45 @@ class SearchResultDepth(StrEnum):
     TOP30 = "top30"
     TOP50 = "top50"
     TOP100 = "top100"
+
+
+# === Content Normalization & Research Synthesis ===
+
+
+class NormalizedClaimType(StrEnum):
+    """归一化事实条目类型。"""
+
+    FACT = "fact"
+    BACKGROUND = "background"
+    TIMELINE_EVENT = "timeline_event"
+    QUOTE = "quote"
+    STORY_POINT = "story_point"
+    CONTROVERSY = "controversy"
+    INTERPRETATION = "interpretation"
+    UNKNOWN = "unknown"
+
+
+class ClaimConfidence(StrEnum):
+    """事实条目置信度。"""
+
+    HIGH = "high"
+    MEDIUM = "medium"
+    LOW = "low"
+    UNVERIFIED = "unverified"
+    CONFLICTING = "conflicting"
+
+
+class SynthesisSectionType(StrEnum):
+    """研究合成文档章节类型。"""
+
+    OVERVIEW = "overview"
+    CONFIRMED_FACTS = "confirmed_facts"
+    TIMELINE = "timeline"
+    KEY_PEOPLE = "key_people"
+    KEY_PLACES = "key_places"
+    KEY_CONCEPTS = "key_concepts"
+    STORY_POINTS = "story_points"
+    BOOKS_AND_SOURCES = "books_and_sources"
+    CONTROVERSIES = "controversies"
+    VERIFICATION_NEEDED = "verification_needed"
+    SOURCE_NOTES = "source_notes"
