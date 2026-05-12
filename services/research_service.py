@@ -6,11 +6,14 @@
 
 import asyncio
 import logging
+import time
 from datetime import UTC, datetime
 from urllib.parse import urlparse
 
 from pydantic import BaseModel, Field
 
+from app.tracing import TracePhase, TraceStep
+from app.tracing.recorder import get_recorder
 from core.config import get_settings
 from models.enums import DownloadStatus, LanguageCode, SearchSource, SearchStrategy, SourceLevel, TaskMode, TaskStatus
 from models.schemas import ExpandedQuery as RichExpandedQuery, ResearchLanguagePlan, ResearchTask, SourceItem
@@ -116,15 +119,53 @@ class ResearchService:
         )
         logger.info("task_created task_id=%s topic=%s mode=%s", task.id, task.topic, task.mode)
         log_event(task.id, "task_created", f"Task created: {task.topic}", payload={"mode": task.mode.value})
+
+        # Trace
+        get_recorder().info(
+            task.id, TraceStep.TASK_CREATED, TracePhase.PLANNING,
+            message=f"Task created: {task.topic}",
+            input_summary={
+                "topic": task.topic,
+                "mode": task.mode.value,
+                "depth": task.depth.value if hasattr(task.depth, 'value') else str(task.depth),
+                "include_books": task.include_books,
+                "include_gossip": task.include_gossip,
+                "include_video": task.include_video,
+            },
+        )
         return task
 
     async def run_initial_research(self, task: ResearchTask) -> ResearchResultSummary:
         """执行初始研究：语言规划 → 扩展 query → 搜索 → 去重 → 评分 → 保存。"""
         task.status = TaskStatus.RUNNING
         errors: list[str] = []
+        _trace = get_recorder()
+        _research_start = time.perf_counter()
+
+        # 设置 AI Gateway 的 task_id（用于 LLM trace 关联）
+        if self._ai_gateway:
+            self._ai_gateway.set_task_id(task.id)
+
+        # 记录 LLM Plan
+        self._record_llm_plan(task.id)
 
         # 0. 语言规划
         language_plan = await self._plan_language(task)
+
+        # Trace language plan result
+        if language_plan:
+            _trace.info(
+                task.id, TraceStep.LANGUAGE_PLANNING_FINISHED, TracePhase.PLANNING,
+                message=f"Language plan: {language_plan.search_strategy.value}",
+                output_summary={
+                    "user_language": language_plan.user_language.value,
+                    "working_language": language_plan.working_language.value,
+                    "output_language": language_plan.output_language.value,
+                    "search_strategy": language_plan.search_strategy.value,
+                    "canonical_topic": language_plan.canonical_topic,
+                    "main_entity_canonical": language_plan.main_entity_canonical,
+                },
+            )
 
         # 1. 扩展 query（语言规划感知）
         logger.info("research_step step=query_expansion task_id=%s", task.id)
@@ -133,6 +174,21 @@ class ResearchService:
         expanded = await self._expand_queries_with_plan(task, language_plan)
         task.expanded_queries = [q.query for q in expanded]
         log_event(task.id, "query_expanded", f"Generated {len(expanded)} queries", payload={"count": len(expanded)})
+
+        # Trace query expansion
+        en_queries = [q for q in expanded if not any('\u4e00' <= c <= '\u9fff' for c in q.query)]
+        zh_queries = [q for q in expanded if any('\u4e00' <= c <= '\u9fff' for c in q.query)]
+        _trace.info(
+            task.id, TraceStep.QUERY_EXPANSION_FINISHED, TracePhase.PLANNING,
+            message=f"Generated {len(expanded)} queries",
+            service="QueryExpansionService",
+            output_summary={
+                "expanded_query_count": len(expanded),
+                "english_query_count": len(en_queries),
+                "chinese_query_count": len(zh_queries),
+                "queries": [q.query for q in expanded[:30]],
+            },
+        )
 
         # 2. 并发搜索
         logger.info("research_step step=search task_id=%s queries=%d", task.id, len(expanded))
@@ -146,6 +202,18 @@ class ResearchService:
         deduped = dedupe_results(raw_results)
         log_event(task.id, "dedupe_finished", f"Deduped {len(raw_results)} → {len(deduped)}", payload={"before": len(raw_results), "after": len(deduped)})
 
+        # Trace dedupe
+        _trace.info(
+            task.id, TraceStep.DEDUPE_FINISHED, TracePhase.PROCESSING,
+            message=f"Deduped {len(raw_results)} → {len(deduped)}",
+            service="DedupeService",
+            output_summary={
+                "before_count": len(raw_results),
+                "after_count": len(deduped),
+                "removed_count": len(raw_results) - len(deduped),
+            },
+        )
+
         # 4. 评分
         logger.info("research_step step=scoring task_id=%s deduped=%d", task.id, len(deduped))
         scored = score_candidates(deduped, topic=task.topic)
@@ -154,10 +222,40 @@ class ResearchService:
         # 5. 转换为 SourceItem（带语言元数据）
         source_items = self._to_source_items(task.id, scored, language_plan=language_plan)
 
+        # Trace scoring (after source_items are created so we have levels)
+        level_counts = {}
+        for item in source_items:
+            lvl = item.source_level.value
+            level_counts[lvl] = level_counts.get(lvl, 0) + 1
+        _trace.info(
+            task.id, TraceStep.SCORING_FINISHED, TracePhase.PROCESSING,
+            message=f"Scored {len(scored)} candidates",
+            service="ScoringService",
+            output_summary={
+                "total_sources": len(source_items),
+                "level_counts": level_counts,
+            },
+        )
+
         # 6. 更新任务状态
         task.status = TaskStatus.COMPLETED
         task.completed_at = datetime.now(UTC)
         log_event(task.id, "task_completed", f"Research completed: {len(source_items)} sources saved", payload={"total_saved": len(source_items), "errors": len(errors)})
+
+        # Trace task completed
+        total_duration_ms = int((time.perf_counter() - _research_start) * 1000)
+        _trace.info(
+            task.id, TraceStep.TASK_COMPLETED, TracePhase.PROCESSING,
+            message=f"Research completed: {len(source_items)} sources",
+            output_summary={
+                "total_sources": len(source_items),
+                "total_queries": len(expanded),
+                "total_raw_results": len(raw_results),
+                "total_after_dedup": len(deduped),
+                "error_count": len(errors),
+            },
+            metrics={"duration_ms": total_duration_ms},
+        )
 
         summary = ResearchResultSummary(
             task_id=task.id,
@@ -181,6 +279,45 @@ class ResearchService:
         )
 
         return summary
+
+    # ============================================================
+    # LLM Plan Recording
+    # ============================================================
+
+    def _record_llm_plan(self, task_id: str) -> None:
+        """记录 LLM 使用计划 — 哪些 task 可用、哪些禁用、哪些未实现。"""
+        try:
+            from app.tracing.llm_registry import get_all_task_info, RULE_ONLY_STEPS
+            from core.config import get_settings
+
+            settings = get_settings()
+            all_tasks = get_all_task_info()
+
+            enabled_tasks = [t.task_name for t in all_tasks if t.enabled and t.implemented]
+            disabled_tasks = [t.task_name for t in all_tasks if not t.enabled]
+            planned_tasks = [t.task_name for t in all_tasks if not t.implemented]
+            templates_found = [t.task_name for t in all_tasks if t.prompt_template_exists]
+            templates_missing = [t.task_name for t in all_tasks if t.prompt_template and not t.prompt_template_exists]
+
+            get_recorder().record(
+                task_id=task_id,
+                step="llm_plan_created",
+                phase=TracePhase.PLANNING,
+                message=f"LLM plan: {len(enabled_tasks)} enabled, {len(disabled_tasks)} disabled",
+                service="ResearchService",
+                provider=settings.active_llm_provider,
+                input_summary={
+                    "active_provider": settings.active_llm_provider,
+                    "enabled_tasks": enabled_tasks,
+                    "disabled_tasks": disabled_tasks,
+                    "planned_tasks": planned_tasks,
+                    "prompt_templates_found": templates_found,
+                    "prompt_templates_missing": templates_missing,
+                    "rule_only_steps": RULE_ONLY_STEPS,
+                },
+            )
+        except Exception as e:
+            logger.debug("llm_plan_record_failed error=%s", str(e))
 
     # ============================================================
     # 语言规划

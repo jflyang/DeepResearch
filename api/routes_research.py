@@ -101,7 +101,7 @@ async def get_task(task_id: str):
 
 @router.get("/tasks/{task_id}/sources")
 async def get_sources(task_id: str):
-    """返回分类后的 sources。"""
+    """返回分类后的 sources（含完整字段供 UI 展示）。"""
     if task_id not in _tasks:
         raise HTTPException(status_code=404, detail="Task not found")
 
@@ -109,26 +109,42 @@ async def get_sources(task_id: str):
     items = _source_items.get(task_id, [])
 
     if not items:
-        return {"task_id": task_id, "categories": {}, "total": 0}
+        return {"task_id": task_id, "categories": {}, "total": 0, "items": []}
 
     classified = classify_results(items, mode=task.mode)
-    # 序列化
+    # 序列化分类结果
     result = {}
     for cat, cat_items in classified.items():
-        result[cat] = [
-            {
-                "id": item.id,
-                "title": item.title,
-                "url": item.url,
-                "source_level": item.source_level.value,
-                "source_type": item.source_type.value,
-                "reason_to_read": item.reason_to_read,
-                "download_status": item.download_status.value,
-            }
-            for item in cat_items
-        ]
+        result[cat] = [_serialize_source(item) for item in cat_items]
 
-    return {"task_id": task_id, "categories": result, "total": len(items)}
+    # 同时返回全部 items 的完整列表（用于筛选/排序）
+    all_items = [_serialize_source(item) for item in items]
+
+    return {"task_id": task_id, "categories": result, "total": len(items), "items": all_items}
+
+
+def _serialize_source(item: "SourceItem") -> dict:
+    """序列化 SourceItem 为完整字典。"""
+    from models.schemas import SourceItem as _SI
+    return {
+        "id": item.id,
+        "title": item.title,
+        "url": item.url,
+        "domain": item.domain,
+        "snippet": item.snippet,
+        "source_level": item.source_level.value,
+        "source_type": item.source_type.value,
+        "relevance_score": item.relevance_score,
+        "authority_score": item.authority_score,
+        "originality_score": item.originality_score,
+        "gossip_score": item.gossip_score,
+        "downloadable": item.downloadable,
+        "download_status": item.download_status.value,
+        "reason_to_read": item.reason_to_read,
+        "query_language": item.query_language.value if item.query_language else None,
+        "source_language": item.source_language.value if item.source_language else None,
+        "matched_query": item.matched_query,
+    }
 
 
 @router.get("/tasks/{task_id}/events")
@@ -153,4 +169,125 @@ async def get_task_events(task_id: str, limit: int = 50):
             }
             for e in events
         ],
+    }
+
+
+@router.get("/tasks/{task_id}/trace")
+async def get_task_trace(task_id: str, level: str | None = None, phase: str | None = None, limit: int = 500):
+    """获取任务执行轨迹。"""
+    if task_id not in _tasks:
+        raise HTTPException(status_code=404, detail="Task not found")
+
+    from app.tracing.recorder import get_recorder
+
+    recorder = get_recorder()
+    events = recorder.get_events(task_id, limit=limit, level=level, phase=phase)
+    return {
+        "task_id": task_id,
+        "events": [e.model_dump(mode="json") for e in events],
+    }
+
+
+@router.get("/tasks/{task_id}/trace/summary")
+async def get_task_trace_summary(task_id: str):
+    """获取任务执行轨迹摘要。"""
+    if task_id not in _tasks:
+        raise HTTPException(status_code=404, detail="Task not found")
+
+    from app.tracing.recorder import get_recorder
+
+    recorder = get_recorder()
+    return recorder.get_summary(task_id)
+
+
+@router.get("/tasks/{task_id}/trace/llm")
+async def get_task_trace_llm(task_id: str):
+    """获取任务 LLM 使用详情。"""
+    if task_id not in _tasks:
+        raise HTTPException(status_code=404, detail="Task not found")
+
+    from app.tracing.llm_registry import get_all_task_info, RULE_ONLY_STEPS
+    from app.tracing.models import TraceStep
+    from app.tracing.recorder import get_recorder
+    from core.config import get_settings
+
+    settings = get_settings()
+    recorder = get_recorder()
+    events = recorder.get_events(task_id, limit=1000)
+
+    # 收集 LLM 调用信息
+    llm_calls = [e for e in events if e.step == TraceStep.LLM_CALL_FINISHED]
+    llm_failures = [e for e in events if e.step == TraceStep.LLM_CALL_FAILED]
+
+    # 构建每个 task 的状态
+    all_task_info = get_all_task_info()
+    llm_tasks_status = []
+
+    # 已调用的 task names
+    called_tasks = set()
+    for e in llm_calls:
+        task_name = (e.output_summary or {}).get("task_name") or (e.input_summary or {}).get("task_name", "")
+        if task_name:
+            called_tasks.add(task_name)
+            llm_tasks_status.append({
+                "task_name": task_name,
+                "stage": next((t.stage for t in all_task_info if t.task_name == task_name), "unknown"),
+                "status": "used_llm",
+                "provider": e.provider,
+                "model": e.model,
+                "prompt_template": next((t.prompt_template for t in all_task_info if t.task_name == task_name), ""),
+                "input_chars": (e.output_summary or {}).get("input_chars"),
+                "output_chars": (e.output_summary or {}).get("output_chars"),
+                "duration_ms": e.duration_ms,
+            })
+
+    for e in llm_failures:
+        task_name = (e.input_summary or {}).get("task_name", "")
+        if task_name and task_name not in called_tasks:
+            called_tasks.add(task_name)
+            llm_tasks_status.append({
+                "task_name": task_name,
+                "stage": next((t.stage for t in all_task_info if t.task_name == task_name), "unknown"),
+                "status": "fallback",
+                "provider": e.provider,
+                "model": e.model,
+                "error_message": e.error_message,
+                "fallback_used": True,
+                "fallback_name": next((t.fallback for t in all_task_info if t.task_name == task_name), ""),
+            })
+
+    # 未调用的 tasks
+    for info in all_task_info:
+        if info.task_name in called_tasks:
+            continue
+        if not info.implemented:
+            llm_tasks_status.append({
+                "task_name": info.task_name,
+                "stage": info.stage,
+                "status": "skipped_not_implemented",
+                "skipped_reason": "当前版本未实现",
+            })
+        elif not info.enabled:
+            llm_tasks_status.append({
+                "task_name": info.task_name,
+                "stage": info.stage,
+                "status": "skipped_disabled",
+                "skipped_reason": f"{info.task_name}.enabled=false",
+                "fallback_name": info.fallback,
+            })
+        else:
+            llm_tasks_status.append({
+                "task_name": info.task_name,
+                "stage": info.stage,
+                "status": "skipped_not_reached",
+                "skipped_reason": "流程未到达该阶段",
+            })
+
+    return {
+        "task_id": task_id,
+        "active_provider": settings.active_llm_provider,
+        "active_model": settings.ollama_default_model if settings.active_llm_provider == "ollama_lan" else settings.deepseek_default_model,
+        "llm_call_count": len(llm_calls),
+        "llm_tasks": llm_tasks_status,
+        "rule_only_steps": RULE_ONLY_STEPS,
     }

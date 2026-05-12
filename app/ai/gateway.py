@@ -1,4 +1,11 @@
-"""AI Gateway - LLM 调用统一入口。"""
+"""AI Gateway - LLM 调用统一入口。
+
+每次 LLM 调用都会记录到 TraceRecorder，包括：
+- task_name, provider, model
+- input_chars, output_chars, duration_ms
+- 成功/失败状态
+不记录完整 prompt 或 API key。
+"""
 
 import logging
 import time
@@ -13,6 +20,8 @@ from app.ai.prompts import PromptStore
 from app.ai.router import LLMRouter
 from app.ai.tasks import LLMTaskConfig, load_llm_task_config
 from app.providers.llm.base import LLMRequest, LLMResponse
+from app.tracing.models import TracePhase, TraceStep
+from app.tracing.recorder import get_recorder
 
 logger = logging.getLogger(__name__)
 
@@ -25,6 +34,11 @@ class AIGateway:
     def __init__(self, router: LLMRouter, prompt_store: PromptStore) -> None:
         self._router = router
         self._prompt_store = prompt_store
+        self._current_task_id: str | None = None
+
+    def set_task_id(self, task_id: str) -> None:
+        """设置当前研究任务 ID（用于 trace 关联）。"""
+        self._current_task_id = task_id
 
     async def run_text(
         self,
@@ -96,6 +110,27 @@ class AIGateway:
         )
 
         start = time.perf_counter()
+        task_id = self._current_task_id
+
+        # Trace: LLM call started
+        if task_id:
+            get_recorder().record(
+                task_id=task_id,
+                step=TraceStep.LLM_CALL_STARTED,
+                phase=TracePhase.LLM,
+                message=f"LLM call: {task_name}",
+                service="AIGateway",
+                provider=provider.provider_name,
+                model=config.model,
+                input_summary={
+                    "task_name": task_name,
+                    "input_chars": len(prompt),
+                    "max_output_tokens": config.max_output_tokens,
+                    "temperature": config.temperature,
+                    "json_required": config.json_required,
+                },
+            )
+
         try:
             response = await provider.generate(request)
         except Exception as e:
@@ -104,6 +139,24 @@ class AIGateway:
                 "llm_call_error task=%s provider=%s model=%s latency_ms=%d error=%s",
                 task_name, provider.provider_name, config.model, latency_ms, type(e).__name__,
             )
+
+            # Trace: LLM call failed
+            if task_id:
+                get_recorder().record(
+                    task_id=task_id,
+                    step=TraceStep.LLM_CALL_FAILED,
+                    phase=TracePhase.LLM,
+                    level="error",
+                    message=f"LLM call failed: {task_name}",
+                    service="AIGateway",
+                    provider=provider.provider_name,
+                    model=config.model,
+                    error_code=type(e).__name__,
+                    error_message=str(e)[:300],
+                    duration_ms=latency_ms,
+                    input_summary={"task_name": task_name, "input_chars": len(prompt)},
+                )
+
             self._raise_failure(task_name, config, str(e))
             raise AssertionError("unreachable")
 
@@ -112,6 +165,26 @@ class AIGateway:
             "llm_call_ok task=%s provider=%s model=%s latency_ms=%d output_chars=%d",
             task_name, provider.provider_name, config.model, latency_ms, response.output_chars,
         )
+
+        # Trace: LLM call finished
+        if task_id:
+            get_recorder().record(
+                task_id=task_id,
+                step=TraceStep.LLM_CALL_FINISHED,
+                phase=TracePhase.LLM,
+                message=f"LLM call OK: {task_name}",
+                service="AIGateway",
+                provider=provider.provider_name,
+                model=config.model,
+                duration_ms=latency_ms,
+                output_summary={
+                    "task_name": task_name,
+                    "output_chars": response.output_chars,
+                    "input_chars": len(prompt),
+                },
+                metrics={"duration_ms": latency_ms},
+            )
+
         return response
 
     def _raise_failure(self, task_name: str, config: LLMTaskConfig, reason: str) -> None:

@@ -87,6 +87,29 @@ class APIClient:
         r.raise_for_status()
         return r.json()
 
+    def get_trace(self, task_id: str, level: str | None = None, phase: str | None = None, limit: int = 500) -> dict:
+        """获取任务执行轨迹。"""
+        params = {"limit": limit}
+        if level:
+            params["level"] = level
+        if phase:
+            params["phase"] = phase
+        r = httpx.get(self._url(f"/research/tasks/{task_id}/trace"), params=params, timeout=10.0)
+        r.raise_for_status()
+        return r.json()
+
+    def get_trace_summary(self, task_id: str) -> dict:
+        """获取任务执行轨迹摘要。"""
+        r = httpx.get(self._url(f"/research/tasks/{task_id}/trace/summary"), timeout=10.0)
+        r.raise_for_status()
+        return r.json()
+
+    def get_trace_llm(self, task_id: str) -> dict:
+        """获取任务 LLM 使用详情。"""
+        r = httpx.get(self._url(f"/research/tasks/{task_id}/trace/llm"), timeout=10.0)
+        r.raise_for_status()
+        return r.json()
+
     # === Ollama Settings ===
 
     def get_ollama_settings(self) -> dict:

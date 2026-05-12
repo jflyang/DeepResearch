@@ -33,11 +33,16 @@ async def export_index(task_id: str):
         if not settings.obsidian_configured:
             raise HTTPException(
                 status_code=400,
-                detail="Obsidian vault path not configured. Set OBSIDIAN_VAULT_PATH or pass obsidian_path in request.",
+                detail="Obsidian Vault 未配置，请到 Settings 设置默认 Vault 路径。",
             )
         obsidian_path = str(settings.obsidian_path)
 
     vault = Path(obsidian_path)
+    if not vault.exists() or not vault.is_dir():
+        raise HTTPException(
+            status_code=400,
+            detail=f"Vault 路径无效或不存在: {vault}",
+        )
 
     # 获取 sources（MVP: 从内存）
     from api.routes_research import _source_items
@@ -49,7 +54,6 @@ async def export_index(task_id: str):
 
     docs_map: dict[str, ExtractedDocument] = {}
     # MVP: 简化，传空映射
-    # 未来从 DB 加载
 
     try:
         path = export_research_index(task, sources, docs_map, vault_path=vault)
@@ -57,7 +61,11 @@ async def export_index(task_id: str):
         raise HTTPException(status_code=400, detail=e.message)
 
     return {
+        "success": True,
         "task_id": task_id,
         "status": "exported",
+        "path": str(path),
         "index_path": str(path),
+        "message": f"研究索引已导出到: {path}",
+        "source_count": len(sources),
     }
