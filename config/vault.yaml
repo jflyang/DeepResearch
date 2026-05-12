@@ -1,0 +1,13 @@
+vault:
+  topics_dir: Topics
+  entities_dir: Entities
+  concepts_dir: Concepts
+  cards_dir: cards
+  sources_dir: sources
+  timeline_dir: timeline
+  attachments_dir: attachments
+  enable_wikilinks: true
+  enable_entity_notes: true
+  enable_backlinks: true
+  filename_max_length: 120
+  sanitize_unicode: true

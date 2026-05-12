@@ -1,0 +1,59 @@
+---
+title: "{{ title }}"
+url: "{{ url }}"
+source: "{{ source_provider }}"
+author: "{{ author }}"
+published_at: "{{ published_at }}"
+accessed_at: "{{ accessed_at }}"
+source_level: "{{ source_level }}"
+source_type: "{{ source_type }}"
+topic: "{{ topic }}"
+people: {{ people }}
+places: {{ places }}
+status: "{{ status }}"
+---
+
+# 摘要
+
+{{ summary }}
+
+# 为什么值得看
+
+{{ reason_to_read }}
+
+# 关键摘录
+
+{% for quote in key_quotes %}
+> {{ quote }}
+
+{% endfor %}
+
+# 相关人物
+
+{% for person in people_list %}
+- [[{{ person }}]]
+{% endfor %}
+
+# 相关地点
+
+{% for place in places_list %}
+- {{ place }}
+{% endfor %}
+
+# 重点名词
+
+{% for concept in concepts %}
+- [[{{ concept }}]]
+{% endfor %}
+
+# 可用于播客的故事点
+
+{{ story_points }}
+
+# 正文
+
+{{ content }}
+
+# 原始链接
+
+[{{ title }}]({{ url }})

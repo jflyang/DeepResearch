@@ -1,0 +1,66 @@
+---
+title: "{{ topic }}｜研究索引"
+created_at: "{{ created_at }}"
+status: "{{ status }}"
+total_sources: {{ total_sources }}
+tags:
+  - research-index
+---
+
+# {{ topic }}｜研究索引
+
+## 研究目标
+
+{{ research_goal }}
+
+## 必读资料
+
+{% for item in must_read %}
+- [[{{ item.filename }}|{{ item.title }}]] ({{ item.level }}) — {{ item.reason }}
+{% endfor %}
+
+## 图书资料
+
+{% for item in books %}
+- [[{{ item.filename }}|{{ item.title }}]] — {{ item.author }}
+{% endfor %}
+
+## 访谈资料
+
+{% for item in interviews %}
+- [[{{ item.filename }}|{{ item.title }}]]
+{% endfor %}
+
+## 八卦与旁证
+
+{% for item in gossip %}
+- [[{{ item.filename }}|{{ item.title }}]] ({{ item.level }})
+{% endfor %}
+
+## 重点名词
+
+{% for concept in concepts %}
+- [[{{ concept }}]]
+{% endfor %}
+
+## 相关人物
+
+{% for person in people %}
+- [[{{ person }}]]
+{% endfor %}
+
+## 时间线
+
+{{ timeline }}
+
+## 待核验信息
+
+{% for item in unverified %}
+- {{ item }}
+{% endfor %}
+
+## 下一步深挖方向
+
+{% for direction in next_steps %}
+- {{ direction }}
+{% endfor %}

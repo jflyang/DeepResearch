@@ -1,0 +1,98 @@
+# LLM Provider 配置
+llm_providers:
+  ollama_lan:
+    type: ollama
+    enabled: true
+    enabled_env: ENABLE_LLM
+    base_url_env: OLLAMA_BASE_URL
+    default_model_env: OLLAMA_DEFAULT_MODEL
+    timeout_seconds_env: OLLAMA_TIMEOUT_SECONDS
+
+  deepseek:
+    type: openai_compatible
+    enabled_env: ENABLE_CLOUD_LLM
+    base_url_env: DEEPSEEK_BASE_URL
+    api_key_env: DEEPSEEK_API_KEY
+    default_model_env: DEEPSEEK_DEFAULT_MODEL
+    timeout_seconds_env: CLOUD_LLM_TIMEOUT_SECONDS
+
+  openai:
+    type: openai_compatible
+    enabled_env: ENABLE_CLOUD_LLM
+    base_url_env: OPENAI_BASE_URL
+    api_key_env: OPENAI_API_KEY
+    default_model_env: OPENAI_DEFAULT_MODEL
+    timeout_seconds_env: CLOUD_LLM_TIMEOUT_SECONDS
+
+  openai_compatible:
+    type: openai_compatible
+    enabled_env: ENABLE_CLOUD_LLM
+    base_url_env: OPENAI_COMPATIBLE_BASE_URL
+    api_key_env: OPENAI_COMPATIBLE_API_KEY
+    default_model_env: OPENAI_COMPATIBLE_DEFAULT_MODEL
+    timeout_seconds_env: CLOUD_LLM_TIMEOUT_SECONDS
+
+  mock_llm:
+    type: mock
+    enabled: true
+
+# 服务注册表
+services:
+  ollama_lan:
+    type: llm
+    enabled_env: ENABLE_LLM
+    required_env:
+      - OLLAMA_BASE_URL
+
+  deepseek:
+    type: llm
+    enabled_env: ENABLE_CLOUD_LLM
+    required_env:
+      - DEEPSEEK_API_KEY
+      - DEEPSEEK_BASE_URL
+      - DEEPSEEK_DEFAULT_MODEL
+
+  openai:
+    type: llm
+    enabled_env: ENABLE_CLOUD_LLM
+    required_env:
+      - OPENAI_API_KEY
+      - OPENAI_BASE_URL
+      - OPENAI_DEFAULT_MODEL
+
+  openai_compatible:
+    type: llm
+    enabled_env: ENABLE_CLOUD_LLM
+    required_env:
+      - OPENAI_COMPATIBLE_API_KEY
+      - OPENAI_COMPATIBLE_BASE_URL
+      - OPENAI_COMPATIBLE_DEFAULT_MODEL
+
+  tavily:
+    type: search
+    enabled_env: ENABLE_TAVILY
+    required_env:
+      - TAVILY_API_KEY
+
+  brave:
+    type: search
+    enabled_env: ENABLE_BRAVE
+    required_env:
+      - BRAVE_API_KEY
+
+  google_books:
+    type: search
+    enabled_env: ENABLE_GOOGLE_BOOKS
+    required_env: []
+    public_mode: true
+    note_when_no_key: "public mode (no API key required)"
+
+  trafilatura:
+    type: extraction
+    enabled: true
+    required_env: []
+
+  obsidian:
+    type: export
+    required_env:
+      - OBSIDIAN_VAULT_PATH

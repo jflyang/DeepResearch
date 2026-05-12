@@ -1,0 +1,188 @@
+# 来源评分规则配置
+# 所有评分规则集中在此，业务代码只引用
+
+# === 高可信域名 ===
+authority_domains:
+  # S 级：官方、法院、SEC、一手档案
+  official:
+    score: 0.95
+    domains:
+      - sec.gov
+      - supremecourt.gov
+      - courtlistener.com
+      - pacer.gov
+      - congress.gov
+      - whitehouse.gov
+      - europa.eu
+      - who.int
+
+  # S 级：学术
+  academic:
+    score: 0.92
+    domains:
+      - arxiv.org
+      - nature.com
+      - science.org
+      - ieee.org
+      - acm.org
+      - scholar.google.com
+      - pubmed.ncbi.nlm.nih.gov
+      - jstor.org
+      - ssrn.com
+
+  # A 级：权威媒体
+  major_media:
+    score: 0.80
+    domains:
+      - nytimes.com
+      - washingtonpost.com
+      - reuters.com
+      - bbc.com
+      - bbc.co.uk
+      - theguardian.com
+      - ft.com
+      - economist.com
+      - bloomberg.com
+      - wsj.com
+      - apnews.com
+
+  # A 级：大学
+  university:
+    score: 0.82
+    suffix:
+      - .edu
+      - .ac.uk
+      - .edu.cn
+      - .edu.au
+
+  # A 级：政府
+  government:
+    score: 0.85
+    suffix:
+      - .gov
+      - .gov.uk
+      - .gov.cn
+      - .gov.au
+
+  # B 级：图书
+  book:
+    score: 0.70
+    domains:
+      - books.google.com
+      - openlibrary.org
+      - goodreads.com
+      - amazon.com/dp
+      - archive.org
+
+  # B 级：专业技术
+  tech:
+    score: 0.65
+    domains:
+      - github.com
+      - stackoverflow.com
+      - docs.python.org
+      - developer.mozilla.org
+      - readthedocs.io
+
+  # C 级：社区/论坛
+  community:
+    score: 0.35
+    domains:
+      - reddit.com
+      - quora.com
+      - news.ycombinator.com
+      - discourse.org
+
+  # C 级：博客平台
+  blog_platform:
+    score: 0.40
+    domains:
+      - medium.com
+      - dev.to
+      - substack.com
+      - wordpress.com
+      - blogspot.com
+
+# === 低质量信号 ===
+low_quality:
+  # 标题模式（正则）
+  title_patterns:
+    - "top \\d+"
+    - "\\d+ facts about"
+    - "net worth \\d{4}"
+    - "net worth"
+    - "biography wiki"
+    - "age, height"
+    - "who is .* \\?"
+    - "everything you need to know"
+    - "you won't believe"
+    - "shocking"
+
+  # 低质量域名
+  domains:
+    - celebheights.com
+    - famousbirthdays.com
+    - thefamouspeople.com
+    - biographyonline.net
+    - networth.com
+    - celebnetworth.com
+    - wikibio.in
+    - biographypedia.org
+    - answersafrica.com
+
+# === 八卦信号 ===
+gossip_signals:
+  title_patterns:
+    - "rumor"
+    - "scandal"
+    - "affair"
+    - "divorce"
+    - "dating"
+    - "relationship"
+    - "personal life"
+    - "net worth"
+    - "salary"
+    - "girlfriend"
+    - "boyfriend"
+    - "wife"
+    - "husband"
+    - "cheating"
+
+  domains:
+    - tmz.com
+    - pagesix.com
+    - dailymail.co.uk
+    - eonline.com
+    - usmagazine.com
+    - people.com
+    - radaronline.com
+
+# === 来源分类规则 ===
+category_rules:
+  official:
+    domain_groups: [official, government]
+  primary_source:
+    domain_groups: [academic]
+    keywords_in_title: [transcript, deposition, filing, ruling, testimony]
+  deep_profile:
+    keywords_in_title: [profile, investigation, deep dive, longread, long read]
+    min_snippet_length: 200
+  book:
+    source_types: [book]
+    domain_groups: [book]
+  interview:
+    keywords_in_title: [interview, q&a, conversation with, talks to]
+  transcript:
+    keywords_in_title: [transcript, full text, verbatim]
+  gossip:
+    use_gossip_signals: true
+  low_quality:
+    use_low_quality_signals: true
+
+# === 等级阈值 ===
+level_thresholds:
+  S: 0.75
+  A: 0.60
+  B: 0.45
+  C: 0.30
+  D: 0.0

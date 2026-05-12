@@ -1,0 +1,17 @@
+__pycache__/
+*.py[cod]
+.env
+*.db
+data/output/
+data/*.db
+.ruff_cache/
+.pytest_cache/
+dist/
+*.egg-info/
+.venv/
+venv/
+.coverage
+htmlcov/
+config/runtime_settings.json
+.DS_Store
+.vscode/
