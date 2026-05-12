@@ -11,8 +11,104 @@ topic: "{{ topic }}"
 people: {{ people }}
 places: {{ places }}
 status: "{{ status }}"
----
+{% if original_topic is defined and original_topic %}original_topic: "{{ original_topic }}"
+{% endif %}{% if canonical_topic is defined and canonical_topic %}canonical_topic: "{{ canonical_topic }}"
+{% endif %}{% if user_language is defined and user_language %}user_language: "{{ user_language }}"
+{% endif %}{% if working_language is defined and working_language %}working_language: "{{ working_language }}"
+{% endif %}{% if output_language is defined and output_language %}output_language: "{{ output_language }}"
+{% endif %}{% if source_language is defined and source_language %}source_language: "{{ source_language }}"
+{% endif %}{% if query_language is defined and query_language %}query_language: "{{ query_language }}"
+{% endif %}{% if matched_query is defined and matched_query %}matched_query: "{{ matched_query }}"
+{% endif %}---
 
+{% if bilingual_mode is defined and bilingual_mode %}
+# 中文摘要
+
+{{ summary }}
+
+# 为什么值得看
+
+{{ reason_to_read }}
+
+# 关键事实
+
+{% if key_points is defined and key_points %}
+{% for point in key_points %}
+- {{ point }}
+{% endfor %}
+{% else %}
+待分析
+{% endif %}
+
+# 可用于播客的故事点
+
+{% if story_points_list is defined and story_points_list %}
+{% for point in story_points_list %}
+- {{ point }}
+{% endfor %}
+{% else %}
+{{ story_points if story_points else "待分析" }}
+{% endif %}
+
+# 相关人物
+
+{% for person in people_list %}
+- [[{{ person }}]]
+{% endfor %}
+
+# 相关地点
+
+{% for place in places_list %}
+- {{ place }}
+{% endfor %}
+
+# 重点名词
+
+{% for concept in concepts %}
+- [[{{ concept }}]]
+{% endfor %}
+
+{% if original_terms is defined and original_terms %}
+# 英文术语对照
+
+{% for term in original_terms %}
+- {{ term }}
+{% endfor %}
+{% endif %}
+
+# 关键摘录
+
+{% for quote in key_quotes %}
+> {{ quote }}
+
+{% endfor %}
+
+# 待核验信息
+
+{% if verification_needed is defined and verification_needed %}
+{% for item in verification_needed %}
+- {{ item }}
+{% endfor %}
+{% else %}
+（暂无）
+{% endif %}
+
+# 原文信息
+
+- 原文标题：{{ original_title if original_title is defined and original_title else title }}
+- 原文 URL：[{{ url }}]({{ url }})
+- 原文语言：{{ source_language }}
+- 匹配 query：{{ matched_query if matched_query is defined and matched_query else "N/A" }}
+
+# 原文正文
+
+{{ content }}
+
+# 原始链接
+
+[{{ title }}]({{ url }})
+
+{% else %}
 # 摘要
 
 {{ summary }}
@@ -57,3 +153,5 @@ status: "{{ status }}"
 # 原始链接
 
 [{{ title }}]({{ url }})
+
+{% endif %}

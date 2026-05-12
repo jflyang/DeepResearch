@@ -85,6 +85,12 @@ class SourceItem(BaseModel):
     downloadable: bool = True
     download_status: DownloadStatus = DownloadStatus.PENDING
     reason_to_read: str = ""
+    # 语言元数据（不影响 DB，仅 runtime / markdown export 使用）
+    query_language: LanguageCode | None = None
+    source_language: LanguageCode | None = None
+    matched_query: str | None = None
+    canonical_topic: str | None = None
+    original_topic: str | None = None
 
 
 # === ExtractedDocument ===
@@ -105,6 +111,12 @@ class ExtractedDocument(BaseModel):
     concepts: list[str] = Field(default_factory=list)
     events: list[str] = Field(default_factory=list)
     created_at: datetime = Field(default_factory=_utcnow)
+    # 语言元数据（不影响 DB，仅 runtime / markdown export 使用）
+    original_language: LanguageCode | None = None
+    summary_language: LanguageCode | None = None
+    translated_title: str | None = None
+    canonical_topic: str | None = None
+    original_topic: str | None = None
 
 
 # === Entity ===

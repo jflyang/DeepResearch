@@ -1,4 +1,3 @@
-<<<<<<< HEAD
 # Research Collector - 慢速深度研究资料收集器
 
 本地研究工作台：输入研究主题 → 自动扩展搜索词 → 多源搜索 → 去重评分分类 → 下载提取正文 → LLM 分析 → 沉淀至 Obsidian Vault。
@@ -24,6 +23,81 @@
               │  │ LAN  │ │ API  │  │                             │ Vault        │
               │  └──────┘ └──────┘  │                             └──────────────┘
               └─────────────────────┘
+```
+
+## Research Language Planning（研究语言规划）
+
+用户经常用中文输入研究主题，但高质量资料来自英文世界。语言规划层自动桥接这个鸿沟。
+
+### 流程
+
+```
+中文输入 → 主题理解 → canonical English entity → 英文 query 为主
+                                                → 中文 query 为辅
+                                                → 英文正文提取
+                                                → 中文摘要/故事点/卡片
+                                                → Obsidian 保存（中文摘要 + 英文原文）
+```
+
+### 示例
+
+| 用户输入 | canonical entity | working_language | search_strategy |
+|---------|-----------------|-----------------|-----------------|
+| 库克的童年故事 | Tim Cook | en | english_first |
+| 黄仁勋早期创业 | Jensen Huang | en | english_first |
+| OpenAI 宫斗 | OpenAI | en | english_first |
+| 小米早期创业故事 | 小米 | zh | chinese_first |
+| Tesla 收购 SolarCity 争议 | Tesla | en | english_first |
+
+### 架构组件
+
+| 组件 | 位置 | 职责 |
+|------|------|------|
+| `LanguageCode` enum | `models/enums.py` | zh / en / mixed / unknown |
+| `SearchStrategy` enum | `models/enums.py` | english_first / chinese_first / bilingual |
+| `ResearchLanguagePlan` | `models/schemas.py` | 语言策略数据模型 |
+| `ExpandedQuery` | `models/schemas.py` | 带语言追溯的查询模型 |
+| `ResearchLanguagePlannerService` | `app/services/research_language_planner.py` | 语言规划服务（LLM + 规则 fallback） |
+| `QueryExpansionService` | `services/query_expansion_service.py` | 语言感知的查询扩展 |
+| `ResearchService` | `services/research_service.py` | 集成语言规划的研究流水线 |
+
+### 设计原则
+
+- **低耦合**：语言规划独立成 service，search provider 只接收 query，不负责翻译
+- **可降级**：LLM 不可用时规则 fallback 覆盖常见中文实体映射
+- **可排错**：每个 ExpandedQuery 记录 language / canonical_entity / original_user_term
+- **不覆盖原文**：Markdown 输出保留英文原文，中文摘要在前
+
+### Markdown 双语输出
+
+当 `source_language=en` 且 `output_language=zh` 时，生成的 Obsidian 笔记结构：
+
+```markdown
+---
+source_language: en
+output_language: zh
+canonical_topic: "Tim Cook childhood story"
+original_topic: "库克的童年故事"
+query_language: en
+matched_query: "Tim Cook childhood Robertsdale Alabama"
+---
+
+# 中文摘要
+（中文分析内容）
+
+# 为什么值得看
+（中文）
+
+# 关键事实
+- ...
+
+# 原文信息
+- 原文标题：Tim Cook's Early Life
+- 原文语言：en
+- 匹配 query：Tim Cook childhood Robertsdale Alabama
+
+# 原文正文
+（完整英文原文，不翻译）
 ```
 
 ## 快速开始
@@ -167,13 +241,14 @@ AI Gateway 是 LLM 调用的统一入口，业务模块不直接调用 LLM Provi
 
 | 任务 | 用途 | 默认 Provider |
 |------|------|---------------|
-| `topic_understanding` | 主题分析 | ollama_lan |
-| `query_expansion` | 查询扩展 | active（当前默认） |
+| `topic_understanding` | 主题分析 + 语言规划 | ollama_lan |
+| `query_expansion` | 查询扩展（语言感知） | active（当前默认） |
 | `entity_extraction` | 实体提取 | ollama_lan |
 | `source_review` | 来源评审 | ollama_lan |
-| `document_summary` | 文档摘要 | ollama_lan |
+| `document_summary` | 文档摘要（双语） | ollama_lan |
 | `research_card_generation` | 卡片生成 | ollama_lan |
 | `contradiction_detection` | 矛盾检测 | ollama_lan |
+| `language_planning` | 研究语言规划 | ollama_lan |
 
 ### Prompt Templates
 
@@ -181,11 +256,11 @@ AI Gateway 是 LLM 调用的统一入口，业务模块不直接调用 LLM Provi
 
 | 模板 | 角色定位 | 核心要求 |
 |------|----------|----------|
-| `topic_understanding.zh.md` | 资深研究助理 | 判断主题类型、识别核心实体、给出深挖方向 |
-| `query_expansion.zh.md` | 调查记者研究助理 | 生成一手资料/档案/法律文件/采访导向的搜索词 |
+| `topic_understanding.zh.md` | 资深研究助理 | 判断主题类型、识别 canonical entity、决定语言策略 |
+| `query_expansion.zh.md` | 调查记者研究助理 | 按语言策略生成中英比例合适的搜索词 |
 | `entity_extraction.zh.md` | 档案研究员 | 抽取值得建档的实体，判断研究价值 |
 | `source_review.zh.md` | 事实核查编辑 | 识别 SEO 洗稿/转载/AI 农场，判断信息密度 |
-| `document_summary.zh.md` | 播客研究助理 | 提取故事性素材、关键引用、时间线、争议点 |
+| `document_summary.zh.md` | 播客研究助理 | 英文原文中文摘要、保留关键英文名词、提取故事点 |
 
 所有 Prompt 强制 JSON-only 输出，禁止 markdown/code block/解释文字。
 
@@ -303,18 +378,27 @@ research_collector/
 │   │       ├── openai_compatible.py     # DeepSeek/OpenAI/Compatible（含 list_models）
 │   │       └── mock.py                  # 测试用 Mock
 │   └── services/                        # LLM 增强业务服务
+│       └── research_language_planner.py # 研究语言规划服务
 ├── api/                                 # HTTP 路由
 ├── core/
 │   └── config.py                        # 集中配置（支持 runtime_settings.json 覆盖）
 ├── models/                              # Pydantic 数据模型
+│   ├── enums.py                         # 枚举（含 LanguageCode, SearchStrategy）
+│   └── schemas.py                       # 业务模型（含 ResearchLanguagePlan, ExpandedQuery）
 ├── db/                                  # 持久化
 ├── services/                            # 核心业务逻辑编排
+│   ├── research_service.py              # 研究流水线（集成语言规划）
+│   ├── query_expansion_service.py       # 查询扩展（语言感知）
+│   └── markdown_service.py             # Markdown 导出（双语结构）
 ├── providers/                           # 外部 API 封装（搜索/提取）
 ├── config/
 │   ├── llm_tasks.yaml                   # LLM 任务配置
 │   ├── providers.yaml                   # Provider 注册表
 │   ├── runtime_settings.json            # 运行时配置（.gitignore）
 │   └── prompt_templates/                # 专业研究 Agent Prompt
+├── templates/
+│   ├── source_note.md.j2               # 来源笔记模板（支持双语）
+│   └── research_index.md.j2            # 研究索引模板
 ├── ui/
 │   ├── streamlit_app.py
 │   ├── api_client.py                    # UI → API 客户端
@@ -322,7 +406,7 @@ research_collector/
 │       ├── 1_Research.py
 │       ├── 2_Results.py
 │       └── 3_Settings.py               # 可视化配置页面
-├── tests/                               # 701+ 测试
+├── tests/                               # 842+ 测试
 ├── start.sh                             # 一键启动脚本
 ├── pyproject.toml
 ├── Makefile
@@ -339,7 +423,7 @@ research_collector/
 | `providers/` | 外部 API 封装 | `core/`, `models/` |
 | `app/ai/` | LLM Gateway | `app/providers/llm/`, `config/` |
 | `app/vault/` | Vault Workspace 管理 | `config/vault.yaml` |
-| `app/services/` | LLM 增强业务服务 | `app/ai/`, `services/` |
+| `app/services/` | LLM 增强业务服务（含语言规划） | `app/ai/`, `services/` |
 | `services/` | 核心业务逻辑编排 | `providers/`, `db/`, `models/` |
 | `api/` | HTTP 路由 | `services/`, `models/` |
 | `ui/` | 用户界面 | 通过 HTTP 调用 `api/` |
@@ -348,11 +432,23 @@ research_collector/
 ## 测试
 
 ```bash
-# 全量测试（701+ tests）
+# 全量测试（842+ tests）
 python -m pytest
 
 # AI Gateway
 python -m pytest tests/test_ai_gateway.py tests/test_ai_parser.py tests/test_ai_schemas.py -v
+
+# 语言规划
+python -m pytest tests/test_language_schemas.py tests/test_research_language_planner.py -v
+
+# 语言规划端到端
+python -m pytest tests/test_language_planning_flow.py -v
+
+# Query Expansion（语言感知）
+python -m pytest tests/test_query_expansion.py tests/test_query_expansion_language.py -v
+
+# Markdown 双语输出
+python -m pytest tests/test_markdown.py tests/test_markdown_language_output.py -v
 
 # LLM Providers
 python -m pytest tests/test_ollama_provider.py tests/test_openai_compatible_provider.py -v
@@ -365,6 +461,9 @@ python -m pytest tests/test_settings_routes.py -v
 
 # Vault
 python -m pytest tests/test_vault_paths.py tests/test_vault_naming.py tests/test_vault_manager.py tests/test_wikilinks.py -v
+
+# Prompt Templates
+python -m pytest tests/test_prompt_store.py tests/test_topic_understanding_prompt.py -v
 
 # 集成测试
 python -m pytest tests/test_llm_gateway_integration.py -v
@@ -383,7 +482,5 @@ python -m pytest --cov=app --cov=services --cov=providers
 - 多轮深度研究
 - Vault 增量同步
 - Backlinks 自动维护
-=======
-# DeepResearch
- To conduct in-depth research on a topic from online content
->>>>>>> 3a00fa24d99a517df5e91953b78c9d2d671486ea
+- 语言规划 LLM prompt 优化（更多实体覆盖）
+- 日文/韩文输入支持

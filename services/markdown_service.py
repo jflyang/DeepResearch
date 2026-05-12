@@ -89,7 +89,17 @@ def export_source_note(
     # MVP: 故事点为空
     story_points = ""
 
-    content = template.render(
+    # 判断是否启用双语模式
+    source_lang = (
+        source_item.source_language.value if source_item.source_language else None
+    )
+    output_lang = (
+        extracted.summary_language.value if extracted.summary_language else None
+    )
+    bilingual_mode = (source_lang == "en" and output_lang == "zh")
+
+    # 构建模板变量
+    render_vars = dict(
         title=extracted.title or source_item.title,
         url=source_item.url,
         source_provider=source_item.domain,
@@ -102,7 +112,7 @@ def export_source_note(
         people=extracted.people,
         places=extracted.places,
         status="extracted",
-        summary=summary,
+        summary=extracted.summary or summary,
         reason_to_read=source_item.reason_to_read,
         key_quotes=extracted.key_quotes,
         people_list=extracted.people,
@@ -110,7 +120,29 @@ def export_source_note(
         concepts=extracted.concepts,
         story_points=story_points,
         content=extracted.content,
+        bilingual_mode=bilingual_mode,
     )
+
+    # 语言元数据（仅在有值时传入）
+    if source_item.original_topic:
+        render_vars["original_topic"] = source_item.original_topic
+    if source_item.canonical_topic:
+        render_vars["canonical_topic"] = source_item.canonical_topic
+    if source_item.query_language:
+        render_vars["query_language"] = source_item.query_language.value
+    if source_item.source_language:
+        render_vars["source_language"] = source_item.source_language.value
+    if source_item.matched_query:
+        render_vars["matched_query"] = source_item.matched_query
+
+    if extracted.summary_language:
+        render_vars["output_language"] = extracted.summary_language.value
+    if extracted.original_language:
+        render_vars["user_language"] = ""  # 由调用方设置
+    if source_item.source_language:
+        render_vars["working_language"] = source_item.source_language.value
+
+    content = template.render(**render_vars)
 
     write_file(file_path, content)
 
