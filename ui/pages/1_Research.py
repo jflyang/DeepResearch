@@ -99,27 +99,16 @@ if submitted:
                 for err in errors:
                     st.warning(err)
 
-        # 导出和下一步
+        # 下一步提示
         st.divider()
-        col_next1, col_next2 = st.columns(2)
+        st.markdown(f"""
+**下一步：**
+- 前往 **Results** 页面查看详细结果、筛选来源、提取正文
+- 在 Results 页面可以导出研究索引到 Obsidian Vault
+""")
 
-        with col_next1:
-            if vault_usable:
-                if st.button("📤 导出研究索引到 Obsidian", key="export_after_research"):
-                    with st.spinner("正在导出..."):
-                        try:
-                            export_result = client.export_index(task_id)
-                            if export_result.get("success"):
-                                st.success(f"✅ 已导出: `{export_result.get('path', '')}`")
-                            else:
-                                st.error("导出失败")
-                        except Exception as e:
-                            st.error(f"导出失败: {e}")
-            else:
-                st.warning("⚠️ Obsidian Vault 未配置或不可用，导出功能暂不可用。请到 Settings 配置后再导出。")
-
-        with col_next2:
-            st.info(f"前往 **Results** 页面查看详细结果、筛选来源、提取正文。\n\nTask ID: `{task_id}`")
-
-        # 保存到 session state
+        # 保存到 session state 并提供跳转
         st.session_state["last_task_id"] = task_id
+        st.session_state["selected_task_id"] = task_id
+
+        st.page_link("pages/2_Results.py", label="📊 查看研究结果", icon="📊")

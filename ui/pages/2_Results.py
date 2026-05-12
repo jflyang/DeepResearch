@@ -3,6 +3,251 @@
 import streamlit as st
 from ui.api_client import APIClient
 
+
+# === Helper Functions (must be defined before Streamlit execution) ===
+
+
+def _render_source_list(items: list[dict], api_client: APIClient):
+    """渲染来源列表。"""
+    if not items:
+        st.info("暂无来源。")
+        return
+
+    for item in items:
+        level = item.get("source_level", "?")
+        level_emoji = {"S": "🏆", "A": "⭐", "B": "📄", "C": "📎", "D": "⚠️"}.get(level, "📄")
+        title = item.get("title", "无标题")[:100]
+        url = item.get("url", "")
+        domain = item.get("domain", "")
+        snippet = item.get("snippet", "")
+        source_type = item.get("source_type", "")
+        reason = item.get("reason_to_read", "")
+        dl_status = item.get("download_status", "pending")
+
+        with st.container():
+            st.markdown(f"{level_emoji} **[{level}]** [{title}]({url})")
+            detail_parts = []
+            if domain:
+                detail_parts.append(f"🌐 {domain}")
+            if source_type:
+                detail_parts.append(f"📁 {source_type}")
+            if reason:
+                detail_parts.append(f"💡 {reason}")
+            if detail_parts:
+                st.caption(" | ".join(detail_parts))
+            if snippet:
+                st.caption(snippet[:200])
+
+            scores_col, action_col = st.columns([3, 1])
+            with scores_col:
+                rel = item.get("relevance_score", 0)
+                auth = item.get("authority_score", 0)
+                orig = item.get("originality_score", 0)
+                gossip = item.get("gossip_score", 0)
+                if rel or auth or orig:
+                    st.caption(f"相关性: {rel:.2f} | 权威性: {auth:.2f} | 原创性: {orig:.2f}" +
+                              (f" | 八卦: {gossip:.2f}" if gossip > 0 else ""))
+            with action_col:
+                if dl_status == "pending":
+                    if st.button("📥 提取", key=f"extract_{item['id']}"):
+                        with st.spinner("提取中..."):
+                            try:
+                                result = api_client.extract_source(item["id"])
+                                if result.get("status") == "extracted":
+                                    st.success("✅")
+                                else:
+                                    st.warning("失败")
+                            except Exception as e:
+                                st.error(f"失败: {e}")
+                elif dl_status in ("extracted", "exported"):
+                    st.caption(f"✅ {dl_status}")
+                elif dl_status == "failed":
+                    st.caption("❌ 失败")
+            st.divider()
+
+
+def _render_index_preview(task: dict, items: list[dict]):
+    """渲染研究索引预览。"""
+    topic = task.get("topic", "未知主题")
+    s_a = [i for i in items if i["source_level"] in ("S", "A")]
+    books = [i for i in items if i["source_type"] == "book"]
+    gossip = [i for i in items if i.get("gossip_score", 0) >= 0.3]
+
+    preview = f"# {topic}｜研究索引预览\n\n"
+    preview += "## 研究概览\n"
+    preview += f"- 来源总数：{len(items)}\n"
+    preview += f"- 高质量来源 (S/A)：{len(s_a)}\n"
+    preview += f"- 图书资料：{len(books)}\n"
+    preview += f"- 八卦与旁证：{len(gossip)}\n\n"
+
+    if s_a:
+        preview += "## 必读资料\n"
+        for item in s_a[:10]:
+            preview += f"- **[{item['source_level']}]** [{item['title'][:60]}]({item['url']})\n"
+            if item.get("reason_to_read"):
+                preview += f"  - {item['reason_to_read']}\n"
+        preview += "\n"
+    if books:
+        preview += "## 图书资料\n"
+        for item in books[:5]:
+            preview += f"- [{item['title'][:60]}]({item['url']})\n"
+        preview += "\n"
+    if gossip:
+        preview += "## 八卦与旁证\n"
+        preview += "> 以下内容只作为线索，不应直接当作事实使用。\n\n"
+        for item in gossip[:5]:
+            preview += f"- [{item['title'][:60]}]({item['url']})\n"
+        preview += "\n"
+    preview += "## 下一步建议\n"
+    preview += "- 先提取 S/A 级来源正文\n"
+    preview += "- 再导出研究索引到 Obsidian\n"
+    preview += "- 再批量分析文档\n"
+    st.markdown(preview)
+
+
+def _render_llm_usage(task_id: str, api_client: APIClient):
+    """渲染 LLM 使用情况区域。"""
+    try:
+        llm_data = api_client.get_trace_llm(task_id)
+    except Exception as e:
+        st.caption(f"无法加载 LLM 详情：{e}")
+        return
+
+    st.caption(f"Active Provider: **{llm_data.get('active_provider', '—')}** / Model: **{llm_data.get('active_model', '—')}** / 实际调用: **{llm_data.get('llm_call_count', 0)}** 次")
+
+    llm_tasks = llm_data.get("llm_tasks", [])
+    if not llm_tasks:
+        st.info("本次研究未记录 LLM 任务状态。")
+        return
+
+    status_badges = {
+        "used_llm": "✅", "fallback": "🔁", "skipped_not_reached": "⏭️",
+        "skipped_disabled": "🚫", "skipped_not_implemented": "🧩",
+        "skipped_missing_prompt": "⚠️", "rule_only": "⚙️",
+    }
+
+    for task_info in llm_tasks:
+        status = task_info.get("status", "unknown")
+        badge = status_badges.get(status, "❓")
+        task_name = task_info.get("task_name", "?")
+        stage = task_info.get("stage", "")
+        line = f"{badge} **{task_name}** ({stage})"
+
+        if status == "used_llm":
+            provider = task_info.get("provider", "")
+            model = task_info.get("model", "")
+            duration = task_info.get("duration_ms")
+            input_c = task_info.get("input_chars")
+            output_c = task_info.get("output_chars")
+            details = f"{provider}/{model}"
+            if duration:
+                details += f" {duration}ms"
+            if input_c and output_c:
+                details += f" ({input_c}→{output_c} chars)"
+            line += f" — {details}"
+        elif status == "fallback":
+            fallback = task_info.get("fallback_name", "")
+            line += f" — fallback: {fallback}"
+        elif status in ("skipped_disabled", "skipped_not_reached", "skipped_not_implemented"):
+            reason = task_info.get("skipped_reason", "")
+            line += f" — {reason}"
+        st.markdown(line)
+
+    rule_steps = llm_data.get("rule_only_steps", [])
+    if rule_steps:
+        st.caption(f"⚙️ 规则步骤（不使用 LLM）: {', '.join(rule_steps)}")
+
+
+def _render_trace_view(task_id: str, api_client: APIClient):
+    """渲染执行流程 / Trace 视图。"""
+    try:
+        summary = api_client.get_trace_summary(task_id)
+    except Exception as e:
+        st.warning(f"无法加载 Trace 摘要：{e}")
+        return
+
+    if summary.get("total_events", 0) == 0:
+        st.info("暂无执行轨迹数据。")
+        return
+
+    col1, col2, col3, col4, col5 = st.columns(5)
+    duration = summary.get("duration_ms")
+    col1.metric("总耗时", f"{duration / 1000:.1f}s" if duration else "—")
+    col2.metric("LLM 调用", summary.get("llm_calls", 0))
+    col3.metric("搜索调用", summary.get("search_calls", 0))
+    col4.metric("⚠️ Warning", summary.get("warning_count", 0))
+    col5.metric("❌ Error", summary.get("error_count", 0))
+
+    providers = summary.get("providers_used", [])
+    if providers:
+        st.caption(f"使用的服务: {', '.join(providers)}")
+    source_counts = summary.get("source_counts", {})
+    level_counts = summary.get("level_counts", {})
+    if source_counts:
+        st.caption(f"来源: 原始 {source_counts.get('raw', 0)} → 去重后 {source_counts.get('deduped', 0)}")
+    if level_counts:
+        parts = [f"{k}={v}" for k, v in sorted(level_counts.items())]
+        st.caption(f"等级分布: {', '.join(parts)}")
+
+    st.markdown("---")
+    st.markdown("### 🤖 LLM 使用情况")
+    _render_llm_usage(task_id, api_client)
+    st.markdown("---")
+
+    fcol1, fcol2 = st.columns(2)
+    with fcol1:
+        trace_phase = st.selectbox("阶段", ["全部", "planning", "llm", "search", "processing", "storage", "extraction", "export"], key="trace_phase")
+    with fcol2:
+        trace_level = st.selectbox("级别", ["全部", "info", "warning", "error"], key="trace_level")
+
+    try:
+        params = {}
+        if trace_phase != "全部":
+            params["phase"] = trace_phase
+        if trace_level != "全部":
+            params["level"] = trace_level
+        trace_data = api_client.get_trace(task_id, **params)
+        events = trace_data.get("events", [])
+    except Exception as e:
+        st.warning(f"无法加载 Trace 事件：{e}")
+        return
+
+    if not events:
+        st.info("无匹配事件。")
+        return
+
+    for event in events:
+        level = event.get("level", "info")
+        icon = {"info": "✅", "warning": "⚠️", "error": "❌", "debug": "🔍"}.get(level, "ℹ️")
+        step = event.get("step", "")
+        message = event.get("message", "")
+        evt_duration = event.get("duration_ms")
+        provider = event.get("provider")
+
+        line_parts = [f"{icon} **{step}**"]
+        if message:
+            line_parts.append(f"— {message}")
+        if evt_duration:
+            line_parts.append(f"({evt_duration}ms)")
+        if provider:
+            line_parts.append(f"[{provider}]")
+        st.markdown(" ".join(line_parts))
+
+        has_details = event.get("input_summary") or event.get("output_summary") or event.get("metrics") or event.get("error_message")
+        if has_details:
+            with st.expander("详情", expanded=False):
+                if event.get("input_summary"):
+                    st.json(event["input_summary"])
+                if event.get("output_summary"):
+                    st.json(event["output_summary"])
+                if event.get("metrics"):
+                    st.json(event["metrics"])
+                if event.get("error_message"):
+                    st.error(event["error_message"])
+
+
+# === Page Execution Starts Here ===
+
 st.header("📊 研究结果")
 
 client = APIClient()
@@ -346,281 +591,3 @@ with st.expander("📋 任务事件日志", expanded=False):
             st.info("暂无事件记录。")
     except Exception as e:
         st.warning(f"无法加载事件日志：{e}")
-
-
-# === Helper Functions ===
-
-
-def _render_source_list(items: list[dict], api_client: APIClient):
-    """渲染来源列表。"""
-    if not items:
-        st.info("暂无来源。")
-        return
-
-    for item in items:
-        level = item.get("source_level", "?")
-        level_emoji = {"S": "🏆", "A": "⭐", "B": "📄", "C": "📎", "D": "⚠️"}.get(level, "📄")
-        title = item.get("title", "无标题")[:100]
-        url = item.get("url", "")
-        domain = item.get("domain", "")
-        snippet = item.get("snippet", "")
-        source_type = item.get("source_type", "")
-        reason = item.get("reason_to_read", "")
-        dl_status = item.get("download_status", "pending")
-
-        with st.container():
-            # 标题行
-            st.markdown(f"{level_emoji} **[{level}]** [{title}]({url})")
-
-            # 详情行
-            detail_parts = []
-            if domain:
-                detail_parts.append(f"🌐 {domain}")
-            if source_type:
-                detail_parts.append(f"📁 {source_type}")
-            if reason:
-                detail_parts.append(f"💡 {reason}")
-            if detail_parts:
-                st.caption(" | ".join(detail_parts))
-
-            # 摘要
-            if snippet:
-                st.caption(snippet[:200])
-
-            # 分数和操作
-            scores_col, action_col = st.columns([3, 1])
-            with scores_col:
-                rel = item.get("relevance_score", 0)
-                auth = item.get("authority_score", 0)
-                orig = item.get("originality_score", 0)
-                gossip = item.get("gossip_score", 0)
-                if rel or auth or orig:
-                    st.caption(f"相关性: {rel:.2f} | 权威性: {auth:.2f} | 原创性: {orig:.2f}" +
-                              (f" | 八卦: {gossip:.2f}" if gossip > 0 else ""))
-
-            with action_col:
-                if dl_status == "pending":
-                    if st.button("📥 提取", key=f"extract_{item['id']}"):
-                        with st.spinner("提取中..."):
-                            try:
-                                result = api_client.extract_source(item["id"])
-                                if result.get("status") == "extracted":
-                                    st.success("✅")
-                                else:
-                                    st.warning("失败")
-                            except Exception as e:
-                                st.error(f"失败: {e}")
-                elif dl_status in ("extracted", "exported"):
-                    st.caption(f"✅ {dl_status}")
-                elif dl_status == "failed":
-                    st.caption("❌ 失败")
-
-            st.divider()
-
-
-def _render_index_preview(task: dict, items: list[dict]):
-    """渲染研究索引预览。"""
-    topic = task.get("topic", "未知主题")
-
-    s_a = [i for i in items if i["source_level"] in ("S", "A")]
-    books = [i for i in items if i["source_type"] == "book"]
-    gossip = [i for i in items if i.get("gossip_score", 0) >= 0.3]
-
-    preview = f"# {topic}｜研究索引预览\n\n"
-    preview += f"## 研究概览\n"
-    preview += f"- 来源总数：{len(items)}\n"
-    preview += f"- 高质量来源 (S/A)：{len(s_a)}\n"
-    preview += f"- 图书资料：{len(books)}\n"
-    preview += f"- 八卦与旁证：{len(gossip)}\n\n"
-
-    if s_a:
-        preview += "## 必读资料\n"
-        for item in s_a[:10]:
-            preview += f"- **[{item['source_level']}]** [{item['title'][:60]}]({item['url']})\n"
-            if item.get("reason_to_read"):
-                preview += f"  - {item['reason_to_read']}\n"
-        preview += "\n"
-
-    if books:
-        preview += "## 图书资料\n"
-        for item in books[:5]:
-            preview += f"- [{item['title'][:60]}]({item['url']})\n"
-        preview += "\n"
-
-    if gossip:
-        preview += "## 八卦与旁证\n"
-        preview += "> 以下内容只作为线索，不应直接当作事实使用。\n\n"
-        for item in gossip[:5]:
-            preview += f"- [{item['title'][:60]}]({item['url']})\n"
-        preview += "\n"
-
-    preview += "## 下一步建议\n"
-    preview += "- 先提取 S/A 级来源正文\n"
-    preview += "- 再导出研究索引到 Obsidian\n"
-    preview += "- 再批量分析文档\n"
-
-    st.markdown(preview)
-
-
-def _render_trace_view(task_id: str, api_client: APIClient):
-    """渲染执行流程 / Trace 视图。"""
-    try:
-        summary = api_client.get_trace_summary(task_id)
-    except Exception as e:
-        st.warning(f"无法加载 Trace 摘要：{e}")
-        return
-
-    if summary.get("total_events", 0) == 0:
-        st.info("暂无执行轨迹数据。")
-        return
-
-    # 概要统计
-    col1, col2, col3, col4, col5 = st.columns(5)
-    duration = summary.get("duration_ms")
-    col1.metric("总耗时", f"{duration / 1000:.1f}s" if duration else "—")
-    col2.metric("LLM 调用", summary.get("llm_calls", 0))
-    col3.metric("搜索调用", summary.get("search_calls", 0))
-    col4.metric("⚠️ Warning", summary.get("warning_count", 0))
-    col5.metric("❌ Error", summary.get("error_count", 0))
-
-    providers = summary.get("providers_used", [])
-    if providers:
-        st.caption(f"使用的服务: {', '.join(providers)}")
-
-    source_counts = summary.get("source_counts", {})
-    level_counts = summary.get("level_counts", {})
-    if source_counts:
-        st.caption(f"来源: 原始 {source_counts.get('raw', 0)} → 去重后 {source_counts.get('deduped', 0)}")
-    if level_counts:
-        parts = [f"{k}={v}" for k, v in sorted(level_counts.items())]
-        st.caption(f"等级分布: {', '.join(parts)}")
-
-    st.markdown("---")
-
-    # === LLM 使用情况 ===
-    st.markdown("### 🤖 LLM 使用情况")
-    _render_llm_usage(task_id, api_client)
-
-    st.markdown("---")
-
-    # 过滤器
-    fcol1, fcol2 = st.columns(2)
-    with fcol1:
-        trace_phase = st.selectbox("阶段", ["全部", "planning", "llm", "search", "processing", "storage", "extraction", "export"], key="trace_phase")
-    with fcol2:
-        trace_level = st.selectbox("级别", ["全部", "info", "warning", "error"], key="trace_level")
-
-    # 获取事件
-    try:
-        params = {}
-        if trace_phase != "全部":
-            params["phase"] = trace_phase
-        if trace_level != "全部":
-            params["level"] = trace_level
-        trace_data = api_client.get_trace(task_id, **params)
-        events = trace_data.get("events", [])
-    except Exception as e:
-        st.warning(f"无法加载 Trace 事件：{e}")
-        return
-
-    if not events:
-        st.info("无匹配事件。")
-        return
-
-    # Timeline 展示
-    for event in events:
-        level = event.get("level", "info")
-        icon = {"info": "✅", "warning": "⚠️", "error": "❌", "debug": "🔍"}.get(level, "ℹ️")
-        step = event.get("step", "")
-        message = event.get("message", "")
-        duration = event.get("duration_ms")
-        provider = event.get("provider")
-        service = event.get("service")
-
-        # 构建显示行
-        line_parts = [f"{icon} **{step}**"]
-        if message:
-            line_parts.append(f"— {message}")
-        if duration:
-            line_parts.append(f"({duration}ms)")
-        if provider:
-            line_parts.append(f"[{provider}]")
-
-        st.markdown(" ".join(line_parts))
-
-        # 详情 expander
-        has_details = event.get("input_summary") or event.get("output_summary") or event.get("metrics") or event.get("error_message")
-        if has_details:
-            with st.expander("详情", expanded=False):
-                if event.get("input_summary"):
-                    st.json(event["input_summary"])
-                if event.get("output_summary"):
-                    st.json(event["output_summary"])
-                if event.get("metrics"):
-                    st.json(event["metrics"])
-                if event.get("error_message"):
-                    st.error(event["error_message"])
-
-
-def _render_llm_usage(task_id: str, api_client: APIClient):
-    """渲染 LLM 使用情况区域。"""
-    try:
-        llm_data = api_client.get_trace_llm(task_id)
-    except Exception as e:
-        st.caption(f"无法加载 LLM 详情：{e}")
-        return
-
-    st.caption(f"Active Provider: **{llm_data.get('active_provider', '—')}** / Model: **{llm_data.get('active_model', '—')}** / 实际调用: **{llm_data.get('llm_call_count', 0)}** 次")
-
-    llm_tasks = llm_data.get("llm_tasks", [])
-    if not llm_tasks:
-        st.info("本次研究未记录 LLM 任务状态。")
-        return
-
-    # 状态 badge 映射
-    status_badges = {
-        "used_llm": "✅",
-        "fallback": "🔁",
-        "skipped_not_reached": "⏭️",
-        "skipped_disabled": "🚫",
-        "skipped_not_implemented": "🧩",
-        "skipped_missing_prompt": "⚠️",
-        "rule_only": "⚙️",
-    }
-
-    for task_info in llm_tasks:
-        status = task_info.get("status", "unknown")
-        badge = status_badges.get(status, "❓")
-        task_name = task_info.get("task_name", "?")
-        stage = task_info.get("stage", "")
-
-        line = f"{badge} **{task_name}** ({stage})"
-
-        if status == "used_llm":
-            provider = task_info.get("provider", "")
-            model = task_info.get("model", "")
-            duration = task_info.get("duration_ms")
-            input_c = task_info.get("input_chars")
-            output_c = task_info.get("output_chars")
-            details = f"{provider}/{model}"
-            if duration:
-                details += f" {duration}ms"
-            if input_c and output_c:
-                details += f" ({input_c}→{output_c} chars)"
-            line += f" — {details}"
-        elif status == "fallback":
-            fallback = task_info.get("fallback_name", "")
-            error = task_info.get("error_message", "")
-            line += f" — fallback: {fallback}"
-            if error:
-                line += f" ({error[:50]})"
-        elif status in ("skipped_disabled", "skipped_not_reached", "skipped_not_implemented"):
-            reason = task_info.get("skipped_reason", "")
-            line += f" — {reason}"
-
-        st.markdown(line)
-
-    # Rule-only steps
-    rule_steps = llm_data.get("rule_only_steps", [])
-    if rule_steps:
-        st.caption(f"⚙️ 规则步骤（不使用 LLM）: {', '.join(rule_steps)}")
