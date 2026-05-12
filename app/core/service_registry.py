@@ -205,6 +205,10 @@ class ServiceRegistry:
         if service_name == "google_books":
             return self._get_google_books_status(cfg, enabled, runtime)
 
+        # === 特殊处理：云端 LLM 服务（deepseek/openai/openai_compatible） ===
+        if service_name in ("deepseek", "openai", "openai_compatible"):
+            return self._get_cloud_llm_status(service_name, cfg, enabled, runtime)
+
         # === 通用逻辑：检查 runtime → env → missing ===
         missing_keys: list[str] = []
         source = "default"
@@ -398,4 +402,134 @@ class ServiceRegistry:
             api_key_configured=api_key_configured,
             missing_env_vars=[],
             note=message,
+        )
+
+    def _get_cloud_llm_status(self, service_name: str, cfg: dict, enabled: bool, runtime: dict) -> ServiceStatus:
+        """云端 LLM 服务状态（deepseek/openai/openai_compatible）。
+
+        逻辑：
+        1. 检查 runtime.cloud_llm.provider 是否匹配当前服务名
+        2. 如果匹配且 enabled + api_key/base_url/default_model 都有 → configured
+        3. 如果不匹配（用户选了其他 provider）→ 显示"非当前 provider"而非"缺少 env"
+        4. 如果 cloud_llm 未启用 → 显示"云端 LLM 未启用"
+        5. Fallback 到 env 检查
+        """
+        svc_type = cfg.get("type", "llm")
+        cloud_rt = runtime.get("cloud_llm", {})
+        active_provider = cloud_rt.get("provider", "")
+        cloud_enabled = cloud_rt.get("enabled", False)
+
+        # 检查 runtime 中是否配置了此 provider
+        if active_provider == service_name and cloud_enabled:
+            has_key = bool(cloud_rt.get("api_key"))
+            has_url = bool(cloud_rt.get("base_url"))
+            has_model = bool(cloud_rt.get("default_model"))
+
+            if has_key and has_url and has_model:
+                return ServiceStatus(
+                    name=service_name,
+                    type=svc_type,
+                    enabled=True,
+                    configured=True,
+                    available=True,
+                    source="runtime",
+                    missing_keys=[],
+                    message="来源: runtime_settings.json",
+                    api_key_configured=True,
+                    missing_env_vars=[],
+                    note="来源: runtime_settings.json",
+                )
+            else:
+                # 部分配置
+                missing = []
+                if not has_key:
+                    missing.append("api_key")
+                if not has_url:
+                    missing.append("base_url")
+                if not has_model:
+                    missing.append("default_model")
+                return ServiceStatus(
+                    name=service_name,
+                    type=svc_type,
+                    enabled=True,
+                    configured=False,
+                    available=False,
+                    source="runtime",
+                    missing_keys=missing,
+                    message=f"部分配置，缺少: {', '.join(missing)}",
+                    api_key_configured=has_key,
+                    missing_env_vars=missing,
+                    note=f"部分配置，缺少: {', '.join(missing)}",
+                )
+
+        # Fallback: 检查 .env 中是否有对应变量
+        required_env: list[str] = cfg.get("required_env", [])
+        from app.core.feature_flags import env_has_value as _env_has
+        missing_env = [var for var in required_env if not _env_has(var)]
+
+        if not missing_env:
+            # .env 中有完整配置
+            api_key_configured = any(
+                _env_has(var) for var in required_env
+                if "key" in var.lower()
+            )
+            return ServiceStatus(
+                name=service_name,
+                type=svc_type,
+                enabled=enabled,
+                configured=True,
+                available=enabled,
+                source="env",
+                missing_keys=[],
+                message="来源: .env",
+                api_key_configured=api_key_configured or None,
+                missing_env_vars=[],
+                note="来源: .env",
+            )
+
+        # 用户选了其他 provider，此服务不需要配置
+        if active_provider and active_provider != service_name:
+            return ServiceStatus(
+                name=service_name,
+                type=svc_type,
+                enabled=False,
+                configured=False,
+                available=False,
+                source="default",
+                missing_keys=[],
+                message=f"非当前 provider（当前: {active_provider}）",
+                api_key_configured=None,
+                missing_env_vars=[],
+                note=f"非当前 provider（当前: {active_provider}）",
+            )
+
+        # cloud_llm 未启用或未配置 — 不显示大量 missing env vars
+        if not cloud_enabled:
+            return ServiceStatus(
+                name=service_name,
+                type=svc_type,
+                enabled=False,
+                configured=False,
+                available=False,
+                source="default",
+                missing_keys=[],
+                message="云端 LLM 未启用",
+                api_key_configured=None,
+                missing_env_vars=[],
+                note="云端 LLM 未启用",
+            )
+
+        # cloud_llm 已启用但此 provider 未配置
+        return ServiceStatus(
+            name=service_name,
+            type=svc_type,
+            enabled=enabled,
+            configured=False,
+            available=False,
+            source="default",
+            missing_keys=missing_env,
+            message=f"缺少: {', '.join(missing_env)}",
+            api_key_configured=False,
+            missing_env_vars=missing_env,
+            note=f"缺少: {', '.join(missing_env)}",
         )
