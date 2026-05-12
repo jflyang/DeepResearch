@@ -438,6 +438,8 @@ st.divider()
 
 st.subheader("📁 Obsidian Vault")
 
+st.caption("Vault 路径只需配置一次。新建研究任务会自动使用这里保存的默认路径。")
+
 try:
     obsidian_config = client.get_obsidian_settings()
 except Exception as e:
@@ -450,7 +452,7 @@ if obsidian_config:
         exists = obsidian_config.get("exists", False)
         writable = obsidian_config.get("writable", False)
         if exists and writable:
-            st.markdown(f"✅ Vault 已配置: `{vault_path}`")
+            st.markdown(f"✅ Vault 已配置且可用: `{vault_path}`")
         elif exists:
             st.markdown(f"⚠️ Vault 路径存在但不可写: `{vault_path}`")
         else:
