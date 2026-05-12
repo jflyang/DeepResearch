@@ -157,8 +157,8 @@ CLOUD_LLM_TIMEOUT_SECONDS=120
 
 # DeepSeek
 DEEPSEEK_API_KEY=sk-xxxxx
-DEEPSEEK_BASE_URL=https://api.deepseek.com/v1
-DEEPSEEK_DEFAULT_MODEL=deepseek-chat
+DEEPSEEK_BASE_URL=https://api.deepseek.com
+DEEPSEEK_DEFAULT_MODEL=deepseek-v4-flash
 
 # OpenAI
 OPENAI_API_KEY=sk-xxxxx

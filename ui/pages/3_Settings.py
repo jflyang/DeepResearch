@@ -151,7 +151,7 @@ if cloud_config:
 PROVIDER_OPTIONS = ["deepseek", "openai", "openai_compatible"]
 PROVIDER_LABELS = {"deepseek": "DeepSeek", "openai": "OpenAI", "openai_compatible": "OpenAI-Compatible"}
 DEFAULT_URLS = {
-    "deepseek": "https://api.deepseek.com/v1",
+    "deepseek": "https://api.deepseek.com",
     "openai": "https://api.openai.com/v1",
     "openai_compatible": "",
 }
@@ -184,13 +184,13 @@ with st.form("cloud_llm_form"):
     cloud_base_url = st.text_input(
         "Base URL",
         value=cloud_config.get("base_url", DEFAULT_URLS.get(current_provider, "")),
-        placeholder="https://api.deepseek.com/v1",
+        placeholder="https://api.deepseek.com",
     )
 
     cloud_model = st.text_input(
         "默认模型",
         value=cloud_config.get("default_model", ""),
-        placeholder="deepseek-chat / gpt-4.1-mini",
+        placeholder="deepseek-v4-flash / gpt-4.1-mini",
     )
 
     cloud_timeout = st.number_input(
@@ -209,7 +209,7 @@ if cloud_form_submitted:
     st.session_state["cloud_base_url"] = cloud_base_url
     st.session_state["cloud_api_key"] = cloud_api_key
     st.session_state["cloud_model"] = cloud_model
-    st.session_state["cloud_timeout"] = cloud_timeout
+    # cloud_timeout is managed by the widget key, no need to set manually
     st.session_state["cloud_enabled"] = cloud_enabled
 
 # 操作按钮
