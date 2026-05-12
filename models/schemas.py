@@ -1,6 +1,7 @@
 """Pydantic 业务层数据模型 - 模块间数据契约。"""
 
 from datetime import UTC, datetime
+from enum import StrEnum
 from uuid import uuid4
 
 from pydantic import BaseModel, Field
@@ -12,7 +13,9 @@ from models.enums import (
     DownloadStatus,
     EntityType,
     Language,
+    LanguageCode,
     SearchSource,
+    SearchStrategy,
     SourceLevel,
     SourceType,
     TaskMode,
@@ -129,3 +132,51 @@ class ResearchCard(BaseModel):
     linked_sources: list[str] = Field(default_factory=list)
     confidence: Confidence = Confidence.UNVERIFIED
     markdown_path: str = ""
+
+
+# === Research Language Planning ===
+
+
+class ResearchLanguagePlan(BaseModel):
+    """研究语言规划 - 决定一个研究主题的语言策略。"""
+
+    user_language: LanguageCode = LanguageCode.ZH
+    working_language: LanguageCode = LanguageCode.EN
+    output_language: LanguageCode = LanguageCode.ZH
+    original_topic: str
+    canonical_topic: str = ""
+    main_entity_original: str | None = None
+    main_entity_canonical: str | None = None
+    aliases: list[str] = Field(default_factory=list)
+    search_languages: list[LanguageCode] = Field(default_factory=list)
+    search_strategy: SearchStrategy = SearchStrategy.ENGLISH_FIRST
+    translation_notes: str | None = None
+    confidence: float = Field(default=0.5, ge=0.0, le=1.0)
+
+
+# === ExpandedQuery ===
+
+
+class SourceHint(StrEnum):
+    """搜索来源提示。"""
+
+    WEB = "web"
+    BOOK = "book"
+    VIDEO = "video"
+    ARCHIVE = "archive"
+    FORUM = "forum"
+    LEGAL = "legal"
+    GENERAL = "general"
+
+
+class ExpandedQuery(BaseModel):
+    """单条扩展查询 - 带语言和实体追溯信息。"""
+
+    query: str
+    purpose: str = ""
+    source_hint: SourceHint = SourceHint.GENERAL
+    priority: int = Field(default=5, ge=1, le=10)
+    round: int = 1
+    language: LanguageCode = LanguageCode.EN
+    canonical_entity: str | None = None
+    original_user_term: str | None = None

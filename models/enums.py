@@ -24,6 +24,23 @@ class Language(StrEnum):
     MIXED = "mixed"
 
 
+class LanguageCode(StrEnum):
+    """研究语言规划用语言代码。"""
+
+    ZH = "zh"
+    EN = "en"
+    MIXED = "mixed"
+    UNKNOWN = "unknown"
+
+
+class SearchStrategy(StrEnum):
+    """搜索语言策略。"""
+
+    ENGLISH_FIRST = "english_first"
+    CHINESE_FIRST = "chinese_first"
+    BILINGUAL = "bilingual"
+
+
 class Depth(StrEnum):
     SHALLOW = "shallow"
     STANDARD = "standard"
