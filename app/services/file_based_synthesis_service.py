@@ -131,14 +131,33 @@ def synthesize_from_source_files(
 
     # 读取所有 source 文件
     source_data: list[dict] = []
+    book_count = 0
     for path in source_files:
         try:
             data = read_source_file(path)
+            # 跳过图书类来源（图书作为参考资料单独展示，不参与正文合成）
+            if data.get("source_type") == "book":
+                book_count += 1
+                logger.debug("skip_book_in_synthesis path=%s", path)
+                continue
             source_data.append(data)
         except Exception as e:
             logger.warning("read_source_file_failed path=%s error=%s", path, str(e))
 
     if not source_data:
+        if book_count > 0:
+            return {
+                "success": False,
+                "source_count": 0,
+                "research_path": "",
+                "error": f"sources/ 目录下有 {book_count} 个图书文件，但没有可合成的正文来源。图书不参与合成，请先提取非图书来源的正文。",
+            }
+        return {
+            "success": False,
+            "source_count": 0,
+            "research_path": "",
+            "error": "无法读取 sources/ 目录下的文件。",
+        }
         return {
             "success": False,
             "source_count": 0,

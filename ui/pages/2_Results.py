@@ -242,14 +242,14 @@ with tab_sources:
         )
         filtered = apply_source_filters(all_items, filters)
 
-        # 排序
-        level_order = {"S": 0, "A": 1, "B": 2, "C": 3, "D": 4}
-        filtered.sort(key=lambda x: (
-            level_order.get(x.get("source_level", "D"), 4),
-            -(x.get("relevance_score", 0) + x.get("authority_score", 0)),
-        ))
+        # 分类
+        from ui.pages._results_helpers import group_sources_by_category
+        grouped = group_sources_by_category(filtered)
 
-        st.caption(f"显示 {len(filtered)} / {total_sources} 条")
+        # 统计
+        book_items = [s for s in filtered if s.get("source_type") == "book"]
+        non_book_items = [s for s in filtered if s.get("source_type") != "book"]
+        st.caption(f"显示 {len(filtered)} 条 / 共 {total_sources} 条")
 
         # 提取队列状态
         try:
@@ -261,8 +261,12 @@ with tab_sources:
         except Exception:
             pass
 
-        # Source list
-        for item in filtered:
+        # 分类 Tabs
+        cat_names = ["全部来源"] + list(grouped.keys())
+        source_tabs = st.tabs(cat_names)
+
+        def _render_source_card(item, key_prefix=""):
+            """渲染单个来源卡片。"""
             level = item.get("source_level", "?")
             level_emoji = {"S": "🏆", "A": "⭐", "B": "📄", "C": "📎", "D": "⚠️"}.get(level, "📄")
             title = item.get("title", "无标题")[:100]
@@ -271,97 +275,129 @@ with tab_sources:
             source_type = item.get("source_type", "")
             reason = item.get("reason_to_read", "")
             dl_status = item.get("download_status", "pending")
+            gossip = item.get("gossip_score", 0)
 
             with st.container():
-                st.markdown(f"{level_emoji} **[{level}]** [{title}]({url})")
+                # 图书用特殊图标
+                if source_type == "book":
+                    st.markdown(f"📚 **[{level}]** [{title}]({url})")
+                else:
+                    st.markdown(f"{level_emoji} **[{level}]** [{title}]({url})")
 
                 meta_parts = []
                 if domain:
                     meta_parts.append(domain)
                 if source_type:
                     meta_parts.append(source_type)
+                if gossip >= 0.3:
+                    meta_parts.append(f"🗣️ 八卦 {gossip:.1f}")
                 if reason:
                     meta_parts.append(f"💡 {reason}")
                 if meta_parts:
                     st.caption(" · ".join(meta_parts))
 
-                scores_col, action_col = st.columns([3, 1])
-                with scores_col:
-                    rel = item.get("relevance_score", 0)
-                    auth = item.get("authority_score", 0)
-                    orig = item.get("originality_score", 0)
-                    if rel or auth or orig:
-                        st.caption(f"相关 {rel:.1f} · 权威 {auth:.1f} · 原创 {orig:.1f}")
+                # 图书不显示提取按钮
+                if source_type == "book":
+                    st.caption("📖 图书参考资料（不参与提取和合成）")
+                else:
+                    scores_col, action_col = st.columns([3, 1])
+                    with scores_col:
+                        rel = item.get("relevance_score", 0)
+                        auth = item.get("authority_score", 0)
+                        orig = item.get("originality_score", 0)
+                        if rel or auth or orig:
+                            st.caption(f"相关 {rel:.1f} · 权威 {auth:.1f} · 原创 {orig:.1f}")
 
-                with action_col:
-                    _queued_key = f"_queued_{item['id']}"
-                    _is_queued = st.session_state.get(_queued_key, False)
+                    with action_col:
+                        _queued_key = f"_queued_{item['id']}"
+                        _is_queued = st.session_state.get(_queued_key, False)
 
-                    if dl_status in ("extracted", "exported"):
-                        st.session_state.pop(_queued_key, None)
-                        st.caption("✅ 已提取")
-                    elif _is_queued or dl_status == "downloading":
-                        try:
-                            _ext_st = client.get_extraction_status(item["id"])
-                            _ext_status = _ext_st.get("status", "")
-                        except Exception:
-                            _ext_status = "queued"
-
-                        if _ext_status == "done":
+                        if dl_status in ("extracted", "exported"):
                             st.session_state.pop(_queued_key, None)
                             st.caption("✅ 已提取")
-                        elif _ext_status == "failed":
-                            st.session_state.pop(_queued_key, None)
-                            st.caption("❌ 失败")
-                        else:
-                            st.button("⏳ 提取中", key=f"src_extract_{item['id']}", disabled=True)
-                    elif dl_status == "pending":
-                        def _on_extract(sid=item["id"], qk=_queued_key):
+                        elif _is_queued or dl_status == "downloading":
                             try:
-                                client.extract_source_async(sid)
-                                st.session_state[qk] = True
+                                _ext_st = client.get_extraction_status(item["id"])
+                                _ext_status = _ext_st.get("status", "")
                             except Exception:
-                                pass
-                        st.button("提取", key=f"src_extract_{item['id']}", on_click=_on_extract)
-                    elif dl_status == "failed":
-                        st.caption("❌ 失败")
-                    elif dl_status == "skipped":
-                        st.caption("⏭️ 跳过")
+                                _ext_status = "queued"
 
-                # 已提取内容预览
-                if dl_status in ("extracted", "exported"):
-                    with st.expander("查看内容", expanded=False):
-                        try:
-                            content_data = client.get_extracted_content(item["id"])
-                            if content_data.get("found"):
-                                if content_data.get("summary"):
-                                    st.markdown(f"**摘要:** {content_data['summary']}")
-                                if content_data.get("concepts"):
-                                    st.caption(f"概念: {', '.join(content_data['concepts'][:8])}")
-                                st.caption(f"字数: {content_data.get('content_length', 0)}")
+                            if _ext_status == "done":
+                                st.session_state.pop(_queued_key, None)
+                                st.caption("✅ 已提取")
+                            elif _ext_status == "failed":
+                                st.session_state.pop(_queued_key, None)
+                                st.caption("❌ 失败")
                             else:
-                                st.caption("内容未找到")
-                        except Exception as e:
-                            st.caption(f"加载失败: {e}")
+                                st.button("⏳ 提取中", key=f"{key_prefix}extract_{item['id']}", disabled=True)
+                        elif dl_status == "pending":
+                            def _on_extract(sid=item["id"], qk=_queued_key):
+                                try:
+                                    client.extract_source_async(sid)
+                                    st.session_state[qk] = True
+                                except Exception:
+                                    pass
+                            st.button("提取", key=f"{key_prefix}extract_{item['id']}", on_click=_on_extract)
+                        elif dl_status == "failed":
+                            st.caption("❌ 失败")
+                        elif dl_status == "skipped":
+                            st.caption("⏭️ 跳过")
+
+                    # 已提取内容预览
+                    if dl_status in ("extracted", "exported"):
+                        with st.expander("查看内容", expanded=False):
+                            try:
+                                content_data = client.get_extracted_content(item["id"])
+                                if content_data.get("found"):
+                                    if content_data.get("summary"):
+                                        st.markdown(f"**摘要:** {content_data['summary']}")
+                                    if content_data.get("concepts"):
+                                        st.caption(f"概念: {', '.join(content_data['concepts'][:8])}")
+                                    st.caption(f"字数: {content_data.get('content_length', 0)}")
+                                else:
+                                    st.caption("内容未找到")
+                            except Exception as e:
+                                st.caption(f"加载失败: {e}")
 
                 st.markdown("---")
+
+        # 全部来源 tab
+        with source_tabs[0]:
+            level_order = {"S": 0, "A": 1, "B": 2, "C": 3, "D": 4}
+            sorted_all = sorted(filtered, key=lambda x: (
+                level_order.get(x.get("source_level", "D"), 4),
+                -(x.get("relevance_score", 0) + x.get("authority_score", 0)),
+            ))
+            for item in sorted_all:
+                _render_source_card(item, key_prefix="all_")
+
+        # 分类 tabs
+        for idx, cat_name in enumerate(grouped.keys()):
+            with source_tabs[idx + 1]:
+                cat_items = grouped[cat_name]
+                st.caption(f"{len(cat_items)} 条")
+                for item in cat_items:
+                    _render_source_card(item, key_prefix=f"cat{idx}_")
 
 
 # --- Synthesis Tab ---
 with tab_synthesis:
-    extracted_count = sum(1 for s in all_items if s.get("download_status") in ("extracted", "exported"))
+    # 合成只包含非图书来源
+    non_book_extracted = sum(1 for s in all_items if s.get("download_status") in ("extracted", "exported") and s.get("source_type") != "book")
+    book_count = sum(1 for s in all_items if s.get("source_type") == "book")
 
-    col_s1, col_s2, col_s3 = st.columns(3)
-    col_s1.metric("已提取正文", extracted_count)
-    col_s2.metric("可参与合成", extracted_count)
-    col_s3.metric("总来源", total_sources)
+    col_s1, col_s2, col_s3, col_s4 = st.columns(4)
+    col_s1.metric("已提取正文", non_book_extracted)
+    col_s2.metric("可参与合成", non_book_extracted)
+    col_s3.metric("图书（不参与）", book_count)
+    col_s4.metric("总来源", total_sources)
 
-    syn_state = get_synthesis_button_state(status, extracted_count, vault_usable)
+    syn_state = get_synthesis_button_state(status, non_book_extracted, vault_usable)
 
     if not syn_state["enabled"]:
         render_warning_callout("无法合成", syn_state["reason"])
     else:
-        st.caption(f"将从 sources/ 目录读取 {extracted_count} 篇 .md 文件，合并为 research.md。")
+        st.caption(f"将从 sources/ 目录读取 {non_book_extracted} 篇 .md 文件合并为 research.md。图书资料作为参考不参与合成。")
 
         if st.button(syn_state["label"], type="primary", key="synthesize_btn"):
             with st.spinner("正在合成研究文档..."):
@@ -375,7 +411,16 @@ with tab_synthesis:
                     else:
                         st.error(f"合成失败: {syn_result.get('error', '未知错误')}")
                 except Exception as e:
-                    st.error(f"合成失败: {e}")
+                    error_msg = str(e)
+                    # 尝试从 httpx 错误中提取 detail
+                    try:
+                        if hasattr(e, 'response') and e.response is not None:
+                            detail = e.response.json().get("detail", error_msg)
+                            st.error(f"合成失败: {detail}")
+                        else:
+                            st.error(f"合成失败: {error_msg}")
+                    except Exception:
+                        st.error(f"合成失败: {error_msg}")
 
 
 # --- Trace Tab ---

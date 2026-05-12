@@ -351,6 +351,13 @@ class SourceRepository:
             row.download_status = status
             self.session.commit()
 
+    def update_title(self, source_id: str, title: str) -> None:
+        """更新来源标题（用于翻译后更新）。"""
+        row = self.session.get(SourceTable, source_id)
+        if row:
+            row.title = title
+            self.session.commit()
+
 
 class ExtractedRepository:
     def __init__(self, session: Session):

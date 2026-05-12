@@ -3,15 +3,18 @@
 auto_fetch:
   include_levels: ["S", "A", "B"]
   exclude_levels: ["C", "D"]
+  exclude_source_types: ["book"]
 
 auto_normalization:
   include_levels: ["S", "A", "B"]
   exclude_levels: ["C", "D"]
+  exclude_source_types: ["book"]
 
 auto_synthesis:
   enabled: true
   include_levels: ["S", "A", "B"]
   exclude_levels: ["C", "D"]
+  exclude_source_types: ["book"]
   require_extracted_documents: true
   min_extracted_documents: 1
   run_after_auto_fetch: true

@@ -279,6 +279,11 @@ async def _do_extract_and_save(source_id: str):
     if target_item.download_status == DownloadStatus.EXTRACTED:
         return  # 已提取，跳过
 
+    # 图书类来源跳过自动提取（图书信息页无法提取正文）
+    if hasattr(target_item, 'source_type') and str(getattr(target_item.source_type, 'value', target_item.source_type)) == "book":
+        logger.info("skip_book_extraction source_id=%s title=%s", source_id, target_item.title)
+        return
+
     # 执行提取
     service = ExtractionService()
     doc = await service.extract_source(target_item)
@@ -343,6 +348,14 @@ async def _do_extract_and_save(source_id: str):
             if translated:
                 doc.content = translated
                 logger.info("content_translated source_id=%s chars=%d", source_id, len(translated))
+            # 翻译标题
+            if doc.title and _is_english_content(doc.title):
+                translated_title = await _translate_title(doc.title)
+                if translated_title:
+                    doc.title = translated_title
+                    # 同步更新 source_item 标题和 DB
+                    target_item.title = translated_title
+                    _update_source_title_in_db(source_id, translated_title)
     except Exception as e:
         logger.warning("translation_failed source_id=%s error=%s, using original", source_id, str(e)[:200])
 
@@ -553,3 +566,64 @@ async def _translate_to_bilingual(content: str, title: str) -> str | None:
     except Exception as e:
         logger.warning("llm_translation_failed error=%s", str(e)[:200])
         return None
+
+
+# === 标题翻译 ===
+
+
+async def _translate_title(title: str) -> str | None:
+    """调用 LLM 将英文标题翻译为中文。
+
+    返回格式：中文标题（英文原标题）
+    如果失败返回 None。
+    """
+    from app.ai.gateway import AIGateway
+    from app.ai.prompts import PromptStore
+    from app.ai.router import LLMRouter
+    from app.providers.llm.base import LLMRequest
+
+    try:
+        router = LLMRouter()
+        provider_name = router.get_active_provider_name()
+        provider = router.get_provider(provider_name)
+    except Exception:
+        return None
+
+    prompt = (
+        f"请将以下英文标题翻译为中文，格式为：中文翻译（英文原文）\n"
+        f"只输出翻译结果，不要解释。\n\n"
+        f"标题：{title}"
+    )
+
+    try:
+        request = LLMRequest(
+            model=getattr(provider, '_default_model', 'qwen3:8b'),
+            user_prompt=prompt,
+            temperature=0.1,
+            max_output_tokens=200,
+            timeout_seconds=30,
+        )
+        response = await provider.generate(request)
+        result = response.text.strip()
+        # 验证结果合理性
+        if result and len(result) > 3 and len(result) < len(title) * 4:
+            return result
+        return None
+    except Exception as e:
+        logger.debug("title_translation_failed title=%s error=%s", title[:50], str(e)[:100])
+        return None
+
+
+def _update_source_title_in_db(source_id: str, new_title: str):
+    """更新 DB 中来源的标题。"""
+    try:
+        from db.session import get_session
+        from db.repositories import SourceRepository
+        session = get_session()
+        try:
+            repo = SourceRepository(session)
+            repo.update_title(source_id, new_title)
+        finally:
+            session.close()
+    except Exception as e:
+        logger.debug("update_source_title_failed source_id=%s error=%s", source_id, str(e)[:100])

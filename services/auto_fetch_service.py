@@ -105,6 +105,7 @@ def select_sources_for_fetch(
     include_levels = set(fetch_policy.get("include_levels", ["S", "A"]))
     max_sources = fetch_policy.get("max_sources_per_task", 20)
     skip_types = set(fetch_policy.get("skip_source_types", []))
+    skip_types.add("book")  # 图书始终跳过自动抓取，作为特殊资源单独处理
     skip_domains = set(fetch_policy.get("skip_domains", []))
     min_relevance = fetch_policy.get("min_relevance_score", 0.3)
     retry_failed = fetch_policy.get("retry_failed", False)
