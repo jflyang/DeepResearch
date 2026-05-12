@@ -1,6 +1,9 @@
 # Research Collector - 慢速深度研究资料收集器
 
-本地研究工作台：输入研究主题 → 自动扩展搜索词 → 多源搜索 → 去重评分分类 → 下载提取正文 → LLM 分析 → 沉淀至 Obsidian Vault。
+本地研究工作台，支持两条研究路径：
+
+1. **普通研究**：输入主题 → 自动扩展搜索词 → 多源搜索 → 去重评分分类 → 下载提取正文 → LLM 分析 → 沉淀至 Obsidian Vault。
+2. **外部报告导入**：粘贴 GPT / Deep Research / Perplexity / Claude 生成的研究报告 → 解析引用 → 抓取链接正文 → 补充检索书籍/论文 → LLM 增强分析 → 导出到 Obsidian。
 
 ## 架构
 
@@ -26,6 +29,8 @@
 ```
 
 ## 研究流程
+
+### 普通研究流程
 
 ```
 用户输入主题
@@ -55,6 +60,37 @@
 │  导出研究索引到 Obsidian Vault                          │
 └────────────────────────────────────────────────────────┘
 ```
+
+### 外部报告导入流程（Report Ingestion）
+
+```
+用户粘贴 AI 研究报告
+    │
+    ▼
+┌─ Parse ────────────────────────────────────────────────┐
+│  规则解析：Markdown 链接 / 裸 URL / 脚注 / HTML 链接    │
+│           中文书名号 / 英文书名 / DOI / arXiv ID        │
+└────────────────────────────────────────────────────────┘
+    │
+    ▼
+┌─ LLM Enhancement（可选）──────────────────────────────┐
+│  报告理解 → 隐性引用提取 → 来源优先级排序              │
+└────────────────────────────────────────────────────────┘
+    │
+    ▼
+┌─ Fetch & Enrich ───────────────────────────────────────┐
+│  URL 直接抓取正文                                       │
+│  书籍 → Open Library / Google Books 补充检索            │
+│  论文 → Crossref / arXiv 补充检索                       │
+└────────────────────────────────────────────────────────┘
+    │
+    ▼
+┌─ Analyze & Export ─────────────────────────────────────┐
+│  正文分析 → 导出到 Obsidian（index.md + imported_report.md）│
+└────────────────────────────────────────────────────────┘
+```
+
+两条流程在"抓取正文"之后共享同一套处理管线（去重 → 评分 → 分析 → 导出）。
 
 ## 快速开始
 
@@ -141,6 +177,7 @@ OBSIDIAN_VAULT_PATH=/Users/you/Obsidian/ResearchVault
 - 导出区域：一键导出研究索引到 Obsidian Vault
 - 筛选排序：按等级/类型/状态/关键词筛选，按质量/相关性排序
 - 分类浏览：必读资料 / 一手资料 / 深度报道 / 图书 / 采访 / 八卦
+- 报告导入视图：当任务为 report_ingestion 时，按来源渠道分类（报告直接链接 / 补充检索 / 失败）
 - 执行流程 Trace：查看完整研究执行轨迹和 LLM 使用情况
 - 研究索引预览：Markdown 格式预览
 - 事件日志：任务执行事件时间线
@@ -152,6 +189,13 @@ OBSIDIAN_VAULT_PATH=/Users/you/Obsidian/ResearchVault
 - 搜索 Provider：Tavily / Brave / Google Books 配置
 - Obsidian Vault：路径 → 测试 → 保存
 - 全部服务状态详情：实时显示所有服务配置来源和状态
+
+### Report Ingestion（导入外部研究报告）
+
+- 输入区域：主题 / 报告来源 / 报告文本 / 输出语言 / 选项
+- 支持来源：ChatGPT / GPT Deep Research / Perplexity / Claude / Gemini
+- 操作流程：创建导入任务 → 解析报告（预览引用）→ 开始抓取与分析 → 查看 Results
+- 选项：抓取网页链接 / 补充搜索书名 / 补充搜索论文 / 提取正文摘要 / 自动导出 Obsidian
 
 ## Research Trace（执行轨迹）
 
@@ -233,6 +277,9 @@ AI Gateway 是 LLM 调用的统一入口，业务模块不直接调用 LLM Provi
 | query_expansion | planning | ✅ 已实现 | query_expansion.zh.md |
 | entity_extraction | analysis | ✅ 已实现 | entity_extraction.zh.md |
 | document_summary | analysis | ✅ 已实现 | document_summary.zh.md |
+| report_understanding | report_ingestion | ✅ 已实现 | report_understanding.zh.md |
+| report_reference_extraction | report_ingestion | ✅ 已实现 | report_reference_extraction.zh.md |
+| imported_source_prioritization | report_ingestion | ✅ 已实现 | imported_source_prioritization.zh.md |
 | source_review | scoring | 🚫 禁用 | source_review.zh.md |
 | gossip_classification | analysis | 🧩 计划中 | — |
 | research_card_generation | synthesis | 🧩 计划中 | — |
@@ -261,6 +308,15 @@ AI Gateway 是 LLM 调用的统一入口，业务模块不直接调用 LLM Provi
 | GET | `/research/tasks/{id}/trace/summary` | 轨迹摘要 |
 | GET | `/research/tasks/{id}/trace/llm` | LLM 使用详情 |
 | POST | `/research/tasks/{id}/export-index` | 导出研究索引到 Obsidian |
+
+### 外部报告导入
+
+| 方法 | 路径 | 说明 |
+|------|------|------|
+| POST | `/research/import-report` | 创建报告导入任务 |
+| POST | `/research/import-report/{id}/parse` | 解析报告引用 |
+| POST | `/research/import-report/{id}/run` | 执行抓取与补充检索 |
+| GET | `/research/tasks/{id}/imported-report` | 获取导入报告详情 |
 
 ### 设置与配置
 
@@ -292,7 +348,7 @@ research_collector/
 │   │   ├── tasks.py                     # 任务配置加载
 │   │   ├── prompts.py                   # Prompt 模板管理
 │   │   ├── parser.py                    # JSON 解析器
-│   │   ├── schemas.py                   # LLM 输出 Schema
+│   │   ├── schemas.py                   # LLM 输出 Schema（含 Report Ingestion）
 │   │   ├── budget.py                    # Token 预算
 │   │   └── errors.py                    # AI 模块异常
 │   ├── tracing/                         # Research Trace 系统
@@ -302,15 +358,21 @@ research_collector/
 │   │   └── llm_registry.py             # LLM Task Registry
 │   ├── vault/                           # Vault Workspace 子系统
 │   ├── api/
-│   │   └── routes_settings.py           # 设置 API
+│   │   ├── routes_settings.py           # 设置 API
+│   │   └── routes_report_ingestion.py   # 报告导入 API
 │   ├── core/
 │   │   ├── service_registry.py          # 服务配置中心
 │   │   └── feature_flags.py             # 功能开关
 │   ├── providers/llm/                   # LLM Provider 实现
 │   └── services/                        # LLM 增强业务服务
+│       ├── report_parser_service.py     # 报告解析（纯正则）
+│       ├── reference_extraction_service.py  # 引用转换
+│       ├── report_ingestion_service.py  # 报告导入编排
+│       ├── report_llm_analyzer.py       # 报告 LLM 分析器
+│       └── ...
 ├── api/                                 # HTTP 路由
 │   ├── routes_research.py               # 研究任务 + Trace API
-│   ├── routes_export.py                 # 导出 API
+│   ├── routes_export.py                 # 导出 API（支持 report_ingestion）
 │   └── routes_sources.py               # 来源管理
 ├── core/
 │   └── config.py                        # 集中配置（runtime_settings 覆盖）
@@ -323,14 +385,21 @@ research_collector/
 │   ├── providers.yaml                   # 服务注册表
 │   ├── runtime_settings.json            # 运行时配置（.gitignore）
 │   └── prompt_templates/                # Prompt 模板
+│       ├── report_understanding.zh.md
+│       ├── report_reference_extraction.zh.md
+│       ├── imported_source_prioritization.zh.md
+│       └── ...
+├── data/
+│   └── imported_reports/                # 导入报告文件存储（{task_id}.md）
 ├── templates/                           # Jinja2 Markdown 模板
 ├── ui/
 │   ├── api_client.py                    # UI → API 客户端
 │   └── pages/
 │       ├── 1_Research.py                # 新建研究 + 导出
 │       ├── 2_Results.py                 # 结果工作台 + Trace
-│       └── 3_Settings.py               # 配置管理
-├── tests/                               # 970+ 测试
+│       ├── 3_Settings.py               # 配置管理
+│       └── 4_Report_Ingestion.py       # 导入外部研究报告
+├── tests/                               # 测试
 ├── start.sh                             # 一键启动脚本
 ├── pyproject.toml
 ├── Makefile
@@ -354,6 +423,18 @@ python -m pytest tests/test_export_routes.py -v         # 导出 API
 python -m pytest tests/test_service_registry.py -v      # 服务状态
 python -m pytest tests/test_settings_persistence.py -v  # 配置持久化
 python -m pytest tests/test_markdown_export_index.py -v # Markdown 导出
+
+# Report Ingestion 测试
+python -m pytest tests/test_report_parser.py -v                    # 报告解析
+python -m pytest tests/test_reference_extraction.py -v             # 引用转换
+python -m pytest tests/test_report_ingestion_flow.py -v            # 导入流程
+python -m pytest tests/test_report_ingestion_enrichment.py -v      # 书籍/论文补充检索
+python -m pytest tests/test_report_ingestion_llm_enhancement.py -v # LLM 增强
+python -m pytest tests/test_report_ingestion_llm_trace.py -v       # LLM Trace
+python -m pytest tests/test_report_ingestion_trace.py -v           # 完整 Trace
+python -m pytest tests/test_report_ingestion_routes.py -v          # API 路由
+python -m pytest tests/test_report_ingestion_obsidian_export.py -v # Obsidian 导出
+python -m pytest tests/test_imported_report_persistence.py -v      # 持久化
 
 # 覆盖率
 python -m pytest --cov=app --cov=services --cov=providers
@@ -381,3 +462,8 @@ python -m pytest --cov=app --cov=services --cov=providers
 - 日文/韩文输入支持
 - LLM Reranking（可选）
 - Research Card 自动生成
+- 报告导入：批量 URL 导入（无报告文本）
+- 报告导入：PDF/DOCX 文件上传解析
+- 报告导入：自动检测报告语言
+- 报告导入：书籍全文预览（Open Library）
+- 报告导入：论文摘要自动翻译

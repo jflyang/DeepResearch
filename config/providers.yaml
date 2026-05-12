@@ -87,6 +87,36 @@ services:
     public_mode: true
     note_when_no_key: "public mode (no API key required)"
 
+  searxng:
+    type: search
+    enabled_env: ENABLE_SEARXNG
+    required_env:
+      - SEARXNG_BASE_URL
+
+  open_library:
+    type: search
+    enabled_env: ENABLE_OPEN_LIBRARY
+    required_env: []
+    requires_api_key: false
+
+  crossref:
+    type: search
+    enabled_env: ENABLE_CROSSREF
+    required_env: []
+    requires_api_key: false
+
+  arxiv:
+    type: search
+    enabled_env: ENABLE_ARXIV
+    required_env: []
+    requires_api_key: false
+
+  wikipedia:
+    type: search
+    enabled_env: ENABLE_WIKIPEDIA
+    required_env: []
+    requires_api_key: false
+
   trafilatura:
     type: extraction
     enabled: true

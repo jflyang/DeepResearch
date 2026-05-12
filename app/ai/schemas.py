@@ -150,3 +150,95 @@ class DocumentAnalysisOutput(BaseModel):
     story_points: list[str] = Field(default_factory=list)
     gossip_or_unverified_claims: list[str] = Field(default_factory=list)
     verification_notes: list[str] = Field(default_factory=list)
+
+
+# === Report Ingestion LLM Schemas ===
+
+
+class ClaimType(str, Enum):
+    """Claim 类型。"""
+
+    fact = "fact"
+    opinion = "opinion"
+    rumor = "rumor"
+    interpretation = "interpretation"
+    unknown = "unknown"
+
+
+class ReportClaim(BaseModel):
+    """报告中的待验证声明。"""
+
+    claim: str = Field(max_length=500)
+    claim_type: ClaimType = ClaimType.unknown
+    verification_query: str | None = Field(default=None, max_length=300)
+    priority: int = Field(default=5, ge=1, le=10)
+    confidence: float = Field(default=0.5, ge=0.0, le=1.0)
+
+
+class ReportUnderstandingOutput(BaseModel):
+    """报告理解输出。"""
+
+    main_topic: str = Field(default="", max_length=200)
+    canonical_topic: str | None = Field(default=None, max_length=200)
+    main_entities: list[str] = Field(default_factory=list)
+    people: list[str] = Field(default_factory=list)
+    organizations: list[str] = Field(default_factory=list)
+    places: list[str] = Field(default_factory=list)
+    research_angles: list[str] = Field(default_factory=list)
+    claims_to_verify: list[ReportClaim] = Field(default_factory=list)
+    suggested_search_queries: list[str] = Field(default_factory=list)
+    warnings: list[str] = Field(default_factory=list)
+
+
+class ImplicitReferenceType(str, Enum):
+    """隐性引用类型。"""
+
+    url = "url"
+    book = "book"
+    paper = "paper"
+    interview = "interview"
+    video = "video"
+    article = "article"
+    archive = "archive"
+    unknown = "unknown"
+
+
+class ImplicitReference(BaseModel):
+    """LLM 识别的隐性引用。"""
+
+    type: ImplicitReferenceType = ImplicitReferenceType.unknown
+    title: str = Field(default="", max_length=300)
+    author_hint: str | None = Field(default=None, max_length=200)
+    year_hint: str | None = Field(default=None, max_length=10)
+    url: str | None = Field(default=None, max_length=2000)
+    doi_hint: str | None = Field(default=None, max_length=100)
+    arxiv_id: str | None = Field(default=None, max_length=30)
+    reason: str = Field(default="", max_length=300)
+    search_query: str | None = Field(default=None, max_length=300)
+    confidence: float = Field(default=0.5, ge=0.0, le=1.0)
+
+
+class ReportReferenceExtractionOutput(BaseModel):
+    """报告引用提取输出。"""
+
+    additional_references: list[ImplicitReference] = Field(default_factory=list)
+    additional_search_queries: list[str] = Field(default_factory=list)
+    verification_targets: list[ReportClaim] = Field(default_factory=list)
+
+
+class PrioritizedReference(BaseModel):
+    """优先级排序后的引用。"""
+
+    type: str = Field(default="", max_length=50)
+    value: str = Field(default="", max_length=2000)
+    priority: int = Field(default=5, ge=1, le=10)
+    should_fetch: bool = True
+    should_enrich: bool = False
+    reason: str = Field(default="", max_length=300)
+    risk: str | None = Field(default=None, max_length=200)
+
+
+class ImportedSourcePrioritizationOutput(BaseModel):
+    """来源优先级排序输出。"""
+
+    items: list[PrioritizedReference] = Field(default_factory=list)

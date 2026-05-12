@@ -41,6 +41,30 @@ class TraceStep:
     TASK_COMPLETED = "task_completed"
     TASK_FAILED = "task_failed"
 
+    # === Report Ingestion Steps ===
+    REPORT_IMPORT_TASK_CREATED = "report_import_task_created"
+    REPORT_PARSE_STARTED = "report_parse_started"
+    REPORT_PARSE_FINISHED = "report_parse_finished"
+    REPORT_PARSE_FAILED = "report_parse_failed"
+    RULE_REFERENCE_EXTRACTION_FINISHED = "rule_reference_extraction_finished"
+    REPORT_LLM_UNDERSTANDING_STARTED = "report_understanding_started"
+    REPORT_LLM_UNDERSTANDING_FINISHED = "report_understanding_finished"
+    REPORT_LLM_UNDERSTANDING_FAILED = "report_understanding_fallback"
+    REPORT_LLM_REFERENCE_EXTRACTION_STARTED = "report_reference_extraction_started"
+    REPORT_LLM_REFERENCE_EXTRACTION_FINISHED = "report_reference_extraction_finished"
+    REPORT_LLM_REFERENCE_EXTRACTION_FAILED = "report_reference_extraction_fallback"
+    REFERENCE_MERGE_FINISHED = "reference_merge_finished"
+    IMPORTED_URL_EXTRACTION_STARTED = "url_extraction_started"
+    IMPORTED_URL_EXTRACTION_FINISHED = "url_extraction_finished"
+    IMPORTED_URL_EXTRACTION_FAILED = "imported_url_extraction_failed"
+    IMPORTED_BOOK_ENRICHMENT_STARTED = "book_enrichment_started"
+    IMPORTED_BOOK_ENRICHMENT_FINISHED = "book_enrichment_finished"
+    IMPORTED_PAPER_ENRICHMENT_STARTED = "paper_enrichment_started"
+    IMPORTED_PAPER_ENRICHMENT_FINISHED = "paper_enrichment_finished"
+    REPORT_INGESTION_COMPLETED = "report_ingestion_completed"
+    REPORT_INGESTION_FAILED = "report_ingestion_failed"
+    LLM_ENHANCEMENT_SKIPPED = "llm_enhancement_skipped"
+
 
 class TracePhase:
     """Trace 阶段常量。"""
@@ -52,6 +76,7 @@ class TracePhase:
     STORAGE = "storage"
     EXTRACTION = "extraction"
     EXPORT = "export"
+    INGESTION = "ingestion"
 
 
 class TraceEvent(BaseModel):

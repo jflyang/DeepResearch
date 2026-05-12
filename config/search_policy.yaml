@@ -1,0 +1,34 @@
+# 搜索策略配置 - 免费 MVP 模式
+mode: free_first
+
+defaults:
+  max_results_per_query: 8
+  max_queries_per_task: 20
+  paid_providers_enabled: false
+
+routing:
+  web:
+    - searxng
+    - wikipedia
+  general:
+    - searxng
+    - wikipedia
+  book:
+    - open_library
+  academic:
+    - crossref
+    - arxiv
+    - wikipedia
+  paper:
+    - crossref
+    - arxiv
+  concept:
+    - crossref
+    - arxiv
+    - wikipedia
+  archive:
+    - searxng
+    - wikipedia
+  legal:
+    - searxng
+    - wikipedia

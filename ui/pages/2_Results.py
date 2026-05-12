@@ -7,7 +7,41 @@ from ui.api_client import APIClient
 # === Helper Functions (must be defined before Streamlit execution) ===
 
 
-def _render_source_list(items: list[dict], api_client: APIClient):
+def classify_report_ingestion_sources(items: list[dict]) -> dict[str, list[dict]]:
+    """对 report_ingestion 任务的来源按 source_origin 分类。"""
+    categories = {
+        "报告中直接链接": [],
+        "补充检索来源": [],
+        "提取失败 / 需手动处理": [],
+    }
+    for item in items:
+        origin = item.get("source_origin", "search_provider")
+        dl_status = item.get("download_status", "pending")
+
+        if dl_status == "failed":
+            categories["提取失败 / 需手动处理"].append(item)
+        elif origin == "imported_report":
+            categories["报告中直接链接"].append(item)
+        elif origin == "imported_report_enriched":
+            categories["补充检索来源"].append(item)
+        else:
+            categories["报告中直接链接"].append(item)
+
+    return {k: v for k, v in categories.items() if v}
+
+
+def get_source_origin_label(origin: str) -> str:
+    """获取 source_origin 的中文标签。"""
+    labels = {
+        "imported_report": "📥 报告直接引用",
+        "imported_report_enriched": "🔍 补充检索",
+        "search_provider": "🔎 搜索引擎",
+        "manual": "✏️ 手动添加",
+    }
+    return labels.get(origin, origin)
+
+
+def _render_source_list(items: list[dict], api_client: APIClient, show_origin: bool = False):
     """渲染来源列表。"""
     if not items:
         st.info("暂无来源。")
@@ -31,6 +65,10 @@ def _render_source_list(items: list[dict], api_client: APIClient):
                 detail_parts.append(f"🌐 {domain}")
             if source_type:
                 detail_parts.append(f"📁 {source_type}")
+            if show_origin:
+                origin = item.get("source_origin", "")
+                if origin:
+                    detail_parts.append(get_source_origin_label(origin))
             if reason:
                 detail_parts.append(f"💡 {reason}")
             if detail_parts:
@@ -348,6 +386,19 @@ col4.markdown(f"**完成**: {(task.get('completed_at') or '—')[:16]}")
 if status != "completed":
     st.warning(f"任务状态为 `{status}`，结果可能不完整。")
 
+# === 报告导入 badge 和摘要 ===
+
+_is_report_ingestion = task.get("task_type") == "report_ingestion"
+
+if _is_report_ingestion:
+    st.markdown("📥 **外部研究报告导入**")
+    try:
+        _report_detail = client.get_imported_report(task_id)
+        _report_source = _report_detail.get("report_source") or "未知来源"
+        st.caption(f"报告来源: **{_report_source}**")
+    except Exception:
+        _report_detail = None
+
 st.divider()
 
 # === 加载来源 ===
@@ -408,6 +459,18 @@ col2.metric("高质量 (S/A)", len(s_a_items))
 col3.metric("图书资料", len(book_items))
 col4.metric("已提取正文", len(extracted_items))
 col5.metric("八卦线索", len(gossip_items))
+
+if _is_report_ingestion:
+    # 报告导入特有的统计
+    imported_direct = [i for i in all_items if i.get("source_origin") == "imported_report"]
+    enriched = [i for i in all_items if i.get("source_origin") == "imported_report_enriched"]
+    failed_items = [i for i in all_items if i.get("download_status") == "failed"]
+
+    st.markdown("**导入摘要：**")
+    ri_col1, ri_col2, ri_col3 = st.columns(3)
+    ri_col1.metric("报告直接链接", len(imported_direct))
+    ri_col2.metric("补充检索来源", len(enriched))
+    ri_col3.metric("提取失败", len(failed_items))
 
 st.divider()
 
@@ -545,28 +608,44 @@ st.subheader("📂 分类浏览")
 
 # 构建 tab 列表
 tab_names = ["全部来源"]
-display_categories = ["必读资料", "一手资料", "深度报道", "图书资料", "采访与演讲", "八卦与旁证"]
-available_cats = [cat for cat in display_categories if cat in categories]
-tab_names.extend(available_cats)
 
-# 添加模式特定分类
-mode_cats = [cat for cat in categories if cat not in display_categories and cat != "低质量隐藏"]
-tab_names.extend(mode_cats)
+if _is_report_ingestion:
+    # 报告导入任务使用 source_origin 分类
+    ri_categories = classify_report_ingestion_sources(all_items)
+    available_cats = list(ri_categories.keys())
+    tab_names.extend(available_cats)
+else:
+    display_categories = ["必读资料", "一手资料", "深度报道", "图书资料", "采访与演讲", "八卦与旁证"]
+    available_cats = [cat for cat in display_categories if cat in categories]
+    tab_names.extend(available_cats)
+
+    # 添加模式特定分类
+    mode_cats = [cat for cat in categories if cat not in display_categories and cat != "低质量隐藏"]
+    tab_names.extend(mode_cats)
 
 tabs = st.tabs(tab_names)
 
 # 全部来源 tab
 with tabs[0]:
-    _render_source_list(filtered, client)
+    _render_source_list(filtered, client, show_origin=_is_report_ingestion)
 
 # 分类 tabs
-for idx, cat_name in enumerate(tab_names[1:], 1):
-    with tabs[idx]:
-        cat_items = categories.get(cat_name, [])
-        if not cat_items:
-            st.info(f"「{cat_name}」暂无内容。")
-        else:
-            _render_source_list(cat_items, client)
+if _is_report_ingestion:
+    for idx, cat_name in enumerate(available_cats, 1):
+        with tabs[idx]:
+            cat_items = ri_categories.get(cat_name, [])
+            if not cat_items:
+                st.info(f"「{cat_name}」暂无内容。")
+            else:
+                _render_source_list(cat_items, client, show_origin=True)
+else:
+    for idx, cat_name in enumerate(tab_names[1:], 1):
+        with tabs[idx]:
+            cat_items = categories.get(cat_name, [])
+            if not cat_items:
+                st.info(f"「{cat_name}」暂无内容。")
+            else:
+                _render_source_list(cat_items, client)
 
 st.divider()
 

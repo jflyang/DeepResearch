@@ -38,9 +38,13 @@ def test_task_table_columns():
     columns = {col["name"] for col in inspector.get_columns("tasks")}
 
     expected_columns = {
-        "id", "topic", "mode", "language", "depth",
+        "id", "topic", "canonical_topic", "mode", "language", "depth",
         "include_gossip", "include_books", "include_video",
-        "status", "obsidian_path", "created_at", "completed_at",
+        "status", "obsidian_path",
+        "user_language", "working_language", "output_language", "search_strategy",
+        "expanded_queries", "error_message", "source_count",
+        "exported", "export_path", "metadata_json",
+        "created_at", "updated_at", "completed_at",
     }
     assert expected_columns == columns
 

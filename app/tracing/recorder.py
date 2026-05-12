@@ -145,7 +145,7 @@ class TraceRecorder:
             if e.step == TraceStep.SCORING_FINISHED and e.output_summary:
                 level_counts = e.output_summary.get("level_counts", {})
 
-        return {
+        summary = {
             "task_id": task_id,
             "total_events": len(events),
             "error_count": error_count,
@@ -157,6 +157,41 @@ class TraceRecorder:
             "source_counts": source_counts,
             "level_counts": level_counts,
         }
+
+        # Report ingestion 专用摘要
+        ri_completed = next(
+            (e for e in events if e.step == TraceStep.REPORT_INGESTION_COMPLETED), None
+        )
+        if ri_completed:
+            summary["task_type"] = "report_ingestion"
+            ri_data = ri_completed.output_summary or {}
+            summary["report_ingestion"] = {
+                "parsed_url_count": ri_data.get("parsed_url_count", 0),
+                "parsed_book_count": ri_data.get("parsed_book_count", 0),
+                "parsed_paper_count": ri_data.get("parsed_paper_count", 0),
+                "extracted_document_count": ri_data.get("extracted_document_count", 0),
+                "enriched_source_count": ri_data.get("enriched_source_count", 0),
+                "failed_count": ri_data.get("failed_count", 0),
+                "source_count": ri_data.get("source_count", 0),
+            }
+
+            # 引用合并统计
+            merge_event = next(
+                (e for e in events if e.step == "reference_merge_finished"), None
+            )
+            if merge_event and merge_event.output_summary:
+                summary["references"] = merge_event.output_summary
+
+            # LLM 使用统计
+            llm_steps = [e for e in events if "understanding_finished" in e.step or "extraction_finished" in e.step]
+            llm_tasks_used = []
+            for e in llm_steps:
+                if e.output_summary and e.output_summary.get("status") == "used_llm":
+                    llm_tasks_used.append(e.step.replace("_finished", ""))
+            if llm_tasks_used:
+                summary["llm_tasks_used"] = llm_tasks_used
+
+        return summary
 
     def clear(self, task_id: str | None = None) -> None:
         """清除事件（测试用）。"""

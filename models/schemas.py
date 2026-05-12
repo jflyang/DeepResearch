@@ -14,6 +14,9 @@ from models.enums import (
     EntityType,
     Language,
     LanguageCode,
+    ReferenceStatus,
+    ReferenceType,
+    ResearchTaskType,
     SearchSource,
     SearchStrategy,
     SourceLevel,
@@ -38,6 +41,7 @@ class ResearchTask(BaseModel):
     model_config = {"validate_assignment": True}
 
     id: str = Field(default_factory=_uuid)
+    task_type: ResearchTaskType = ResearchTaskType.SEARCH_RESEARCH
     topic: str
     mode: TaskMode = TaskMode.AUTO
     language: Language = Language.MIXED
@@ -85,6 +89,7 @@ class SourceItem(BaseModel):
     downloadable: bool = True
     download_status: DownloadStatus = DownloadStatus.PENDING
     reason_to_read: str = ""
+    source_origin: str = "search_provider"
     # 语言元数据（不影响 DB，仅 runtime / markdown export 使用）
     query_language: LanguageCode | None = None
     source_language: LanguageCode | None = None
@@ -179,6 +184,9 @@ class SourceHint(StrEnum):
     FORUM = "forum"
     LEGAL = "legal"
     GENERAL = "general"
+    ACADEMIC = "academic"
+    PAPER = "paper"
+    CONCEPT = "concept"
 
 
 class ExpandedQuery(BaseModel):
@@ -192,3 +200,98 @@ class ExpandedQuery(BaseModel):
     language: LanguageCode = LanguageCode.EN
     canonical_entity: str | None = None
     original_user_term: str | None = None
+
+
+# === Report Ingestion ===
+
+
+class ReportIngestionOptions(BaseModel):
+    """外部报告导入选项。"""
+
+    extract_urls: bool = True
+    enrich_books: bool = True
+    enrich_papers: bool = True
+    analyze_documents: bool = True
+    export_to_obsidian: bool = False
+
+
+class ImportedReportCreate(BaseModel):
+    """创建外部报告导入请求。"""
+
+    topic: str
+    report_text: str = Field(min_length=1)
+    report_source: str | None = None
+    output_language: str = "zh"
+    options: ReportIngestionOptions = Field(default_factory=ReportIngestionOptions)
+
+
+class ExtractedUrlReference(BaseModel):
+    """从报告中提取的 URL 引用。"""
+
+    url: str
+    title_hint: str | None = None
+    surrounding_text: str | None = None
+    citation_marker: str | None = None
+
+
+class ExtractedBookReference(BaseModel):
+    """从报告中提取的书籍引用。"""
+
+    title: str
+    author_hint: str | None = None
+    year_hint: str | None = None
+    surrounding_text: str | None = None
+    confidence: float = Field(default=0.5, ge=0.0, le=1.0)
+
+
+class ExtractedPaperReference(BaseModel):
+    """从报告中提取的论文引用。"""
+
+    title: str
+    author_hint: str | None = None
+    year_hint: str | None = None
+    doi_hint: str | None = None
+    arxiv_id: str | None = None
+    surrounding_text: str | None = None
+    confidence: float = Field(default=0.5, ge=0.0, le=1.0)
+
+
+class ParsedReport(BaseModel):
+    """报告解析结果 - 包含所有提取的引用和实体。"""
+
+    urls: list[ExtractedUrlReference] = Field(default_factory=list)
+    books: list[ExtractedBookReference] = Field(default_factory=list)
+    papers: list[ExtractedPaperReference] = Field(default_factory=list)
+    people: list[str] = Field(default_factory=list)
+    organizations: list[str] = Field(default_factory=list)
+    places: list[str] = Field(default_factory=list)
+    claims: list[str] = Field(default_factory=list)
+    raw_citations: list[str] = Field(default_factory=list)
+
+
+class ReferenceCandidate(BaseModel):
+    """引用候选 - 统一表示待处理的引用。"""
+
+    type: ReferenceType
+    value: str
+    title_hint: str | None = None
+    source_url: str | None = None
+    status: ReferenceStatus = ReferenceStatus.PARSED
+    confidence: float = Field(default=0.5, ge=0.0, le=1.0)
+    metadata: dict = Field(default_factory=dict)
+
+
+class ReportIngestionResult(BaseModel):
+    """报告导入结果摘要。"""
+
+    task_id: str
+    parsed_url_count: int = 0
+    parsed_book_count: int = 0
+    parsed_paper_count: int = 0
+    extracted_document_count: int = 0
+    enriched_source_count: int = 0
+    enriched_book_count: int = 0
+    enriched_paper_count: int = 0
+    failed_count: int = 0
+    source_count: int = 0
+    exported_path: str | None = None

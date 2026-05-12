@@ -72,17 +72,17 @@ def sample_sources():
 
 @pytest.fixture
 def _setup_task(sample_task, sample_sources):
-    """注入测试任务到内存存储。"""
-    from api.routes_research import _tasks, _source_items
+    """注入测试任务到 DB 和内存。"""
+    from tests.conftest_db import inject_task_to_db, inject_sources_to_db, remove_task_from_db
+    from api.routes_research import _source_items
 
-    _tasks[sample_task.id] = {
-        "task": sample_task,
-        "obsidian_path": "",
-    }
+    inject_task_to_db(sample_task.id, sample_task.topic, status="completed")
     _source_items[sample_task.id] = sample_sources
+
     yield
-    _tasks.pop(sample_task.id, None)
+
     _source_items.pop(sample_task.id, None)
+    remove_task_from_db(sample_task.id)
 
 
 class TestExportIndex:
@@ -101,8 +101,11 @@ class TestExportIndex:
 
     def test_export_success_with_valid_vault(self, client, _setup_task, tmp_path) -> None:
         """Vault 配置到 tmp_path 时 export-index 成功。"""
-        from api.routes_research import _tasks
-        _tasks["test-task-001"]["obsidian_path"] = str(tmp_path)
+        from db.repositories import TaskRepository
+        from db.session import get_session
+        session = get_session()
+        TaskRepository(session).update_task_metadata("test-task-001", obsidian_path=str(tmp_path))
+        session.close()
 
         response = client.post("/research/tasks/test-task-001/export-index")
         assert response.status_code == 200
@@ -114,8 +117,11 @@ class TestExportIndex:
 
     def test_index_file_exists_after_export(self, client, _setup_task, tmp_path) -> None:
         """成功后 index.md 文件存在。"""
-        from api.routes_research import _tasks
-        _tasks["test-task-001"]["obsidian_path"] = str(tmp_path)
+        from db.repositories import TaskRepository
+        from db.session import get_session
+        session = get_session()
+        TaskRepository(session).update_task_metadata("test-task-001", obsidian_path=str(tmp_path))
+        session.close()
 
         response = client.post("/research/tasks/test-task-001/export-index")
         assert response.status_code == 200
@@ -126,8 +132,11 @@ class TestExportIndex:
 
     def test_index_file_not_empty(self, client, _setup_task, tmp_path) -> None:
         """index.md 不为空。"""
-        from api.routes_research import _tasks
-        _tasks["test-task-001"]["obsidian_path"] = str(tmp_path)
+        from db.repositories import TaskRepository
+        from db.session import get_session
+        session = get_session()
+        TaskRepository(session).update_task_metadata("test-task-001", obsidian_path=str(tmp_path))
+        session.close()
 
         client.post("/research/tasks/test-task-001/export-index")
 
@@ -139,8 +148,11 @@ class TestExportIndex:
 
     def test_index_contains_source_titles(self, client, _setup_task, tmp_path) -> None:
         """index.md 包含来源标题。"""
-        from api.routes_research import _tasks
-        _tasks["test-task-001"]["obsidian_path"] = str(tmp_path)
+        from db.repositories import TaskRepository
+        from db.session import get_session
+        session = get_session()
+        TaskRepository(session).update_task_metadata("test-task-001", obsidian_path=str(tmp_path))
+        session.close()
 
         client.post("/research/tasks/test-task-001/export-index")
 
@@ -150,8 +162,11 @@ class TestExportIndex:
 
     def test_api_returns_path(self, client, _setup_task, tmp_path) -> None:
         """API 返回导出路径。"""
-        from api.routes_research import _tasks
-        _tasks["test-task-001"]["obsidian_path"] = str(tmp_path)
+        from db.repositories import TaskRepository
+        from db.session import get_session
+        session = get_session()
+        TaskRepository(session).update_task_metadata("test-task-001", obsidian_path=str(tmp_path))
+        session.close()
 
         response = client.post("/research/tasks/test-task-001/export-index")
         data = response.json()

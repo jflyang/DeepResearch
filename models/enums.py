@@ -3,6 +3,47 @@
 from enum import StrEnum
 
 
+# === Report Ingestion ===
+
+
+class ResearchTaskType(StrEnum):
+    """研究任务类型。"""
+
+    SEARCH_RESEARCH = "search_research"
+    REPORT_INGESTION = "report_ingestion"
+
+
+class ReferenceType(StrEnum):
+    """外部报告中引用的类型。"""
+
+    URL = "url"
+    BOOK = "book"
+    PAPER = "paper"
+    ARTICLE = "article"
+    INTERVIEW = "interview"
+    VIDEO = "video"
+    UNKNOWN = "unknown"
+
+
+class ReferenceStatus(StrEnum):
+    """引用处理状态。"""
+
+    PARSED = "parsed"
+    ENRICHED = "enriched"
+    EXTRACTED = "extracted"
+    FAILED = "failed"
+    SKIPPED = "skipped"
+
+
+class SourceOrigin(StrEnum):
+    """来源的来源渠道。"""
+
+    SEARCH_PROVIDER = "search_provider"
+    IMPORTED_REPORT = "imported_report"
+    IMPORTED_REPORT_ENRICHED = "imported_report_enriched"
+    MANUAL = "manual"
+
+
 class TaskStatus(StrEnum):
     PENDING = "pending"
     RUNNING = "running"
@@ -53,6 +94,11 @@ class SearchSource(StrEnum):
     GOOGLE_BOOKS = "google_books"
     YOUTUBE = "youtube"
     ARCHIVE = "archive"
+    SEARXNG = "searxng"
+    OPEN_LIBRARY = "open_library"
+    CROSSREF = "crossref"
+    ARXIV = "arxiv"
+    WIKIPEDIA = "wikipedia"
 
 
 class SourceLevel(StrEnum):
@@ -82,6 +128,9 @@ class SourceType(StrEnum):
     VIDEO = "video"
     SOCIAL = "social"
     GOVERNMENT = "government"
+    REFERENCE = "reference"
+    PAPER = "paper"
+    WEB = "web"
     OTHER = "other"
 
 

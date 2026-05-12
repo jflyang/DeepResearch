@@ -119,6 +119,21 @@ class Settings(BaseSettings):
     enable_brave: bool = True
     enable_google_books: bool = True
 
+    # === Free Search Providers ===
+    search_mode: str = "free_first"
+    enable_searxng: bool = True
+    searxng_base_url: str = ""
+    searxng_timeout_seconds: int = 20
+    enable_open_library: bool = True
+    enable_crossref: bool = True
+    crossref_mailto: str = ""
+    crossref_timeout_seconds: int = 20
+    enable_arxiv: bool = True
+    arxiv_timeout_seconds: int = 20
+    enable_wikipedia: bool = True
+    wikipedia_language: str = "en"
+    wikipedia_timeout_seconds: int = 20
+
     # === Scoring Weights ===
     scoring_authority_weight: float = 0.3
     scoring_relevance_weight: float = 0.4
@@ -138,6 +153,26 @@ class Settings(BaseSettings):
     @property
     def google_books_available(self) -> bool:
         return self.enable_google_books and bool(self.google_books_api_key)
+
+    @property
+    def searxng_available(self) -> bool:
+        return self.enable_searxng and bool(self.searxng_base_url)
+
+    @property
+    def open_library_available(self) -> bool:
+        return self.enable_open_library
+
+    @property
+    def crossref_available(self) -> bool:
+        return self.enable_crossref
+
+    @property
+    def arxiv_available(self) -> bool:
+        return self.enable_arxiv
+
+    @property
+    def wikipedia_available(self) -> bool:
+        return self.enable_wikipedia
 
     @property
     def obsidian_configured(self) -> bool:

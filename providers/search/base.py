@@ -24,6 +24,8 @@ class SearchResult(BaseModel):
     source_provider: SearchSource
     source_type: SourceType = SourceType.OTHER
     published_at: datetime | None = None
+    authors: list[str] = Field(default_factory=list)
+    language: str | None = None
     raw: dict[str, Any] = Field(default_factory=dict, exclude=True)
 
 
@@ -45,6 +47,19 @@ class SearchProviderError(Exception):
         self.status_code = status_code
         self.raw_error = raw_error
         super().__init__(f"[{provider}] {message}")
+
+
+# === Provider 健康状态 ===
+
+
+class ProviderHealth(BaseModel):
+    """Provider 健康检查结果。"""
+
+    provider: str
+    enabled: bool = True
+    configured: bool = True
+    reachable: bool | None = None
+    error: str | None = None
 
 
 # === 抽象基类 ===

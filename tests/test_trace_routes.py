@@ -27,13 +27,11 @@ def sample_task():
 
 @pytest.fixture
 def _setup_task_with_trace(sample_task):
-    """注入测试任务和 trace 事件。"""
-    from api.routes_research import _tasks, _source_items
+    """注入测试任务到 DB 和 trace 事件。"""
+    from tests.conftest_db import inject_task_to_db, remove_task_from_db
+    from api.routes_research import _source_items
 
-    _tasks[sample_task.id] = {
-        "task": sample_task,
-        "obsidian_path": "",
-    }
+    inject_task_to_db(sample_task.id, sample_task.topic, status="completed")
     _source_items[sample_task.id] = []
 
     # 添加 trace 事件
@@ -88,9 +86,10 @@ def _setup_task_with_trace(sample_task):
 
     yield
 
-    _tasks.pop(sample_task.id, None)
     _source_items.pop(sample_task.id, None)
     recorder.clear(sample_task.id)
+    from tests.conftest_db import remove_task_from_db
+    remove_task_from_db(sample_task.id)
 
 
 class TestGetTrace:

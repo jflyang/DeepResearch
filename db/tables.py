@@ -27,7 +27,9 @@ class TaskTable(Base):
     __tablename__ = "tasks"
 
     id: Mapped[str] = mapped_column(String(36), primary_key=True, default=_uuid_str)
+    task_type: Mapped[str] = mapped_column(String(30), default="search_research")
     topic: Mapped[str] = mapped_column(String(500), nullable=False)
+    canonical_topic: Mapped[str] = mapped_column(String(500), default="")
     mode: Mapped[str] = mapped_column(String(20), default="auto")
     language: Mapped[str] = mapped_column(String(10), default="mixed")
     depth: Mapped[str] = mapped_column(String(10), default="standard")
@@ -36,7 +38,18 @@ class TaskTable(Base):
     include_video: Mapped[bool] = mapped_column(Boolean, default=False)
     status: Mapped[str] = mapped_column(String(20), default="pending")
     obsidian_path: Mapped[str] = mapped_column(String(500), default="")
+    user_language: Mapped[str] = mapped_column(String(10), default="")
+    working_language: Mapped[str] = mapped_column(String(10), default="")
+    output_language: Mapped[str] = mapped_column(String(10), default="")
+    search_strategy: Mapped[str] = mapped_column(String(30), default="")
+    expanded_queries: Mapped[str] = mapped_column(Text, default="[]")
+    error_message: Mapped[str] = mapped_column(Text, default="")
+    source_count: Mapped[int] = mapped_column(Integer, default=0)
+    exported: Mapped[bool] = mapped_column(Boolean, default=False)
+    export_path: Mapped[str] = mapped_column(String(500), default="")
+    metadata_json: Mapped[str] = mapped_column(Text, default="{}")
     created_at: Mapped[datetime] = mapped_column(DateTime, default=_utcnow)
+    updated_at: Mapped[datetime] = mapped_column(DateTime, default=_utcnow, onupdate=_utcnow)
     completed_at: Mapped[datetime | None] = mapped_column(DateTime, nullable=True, default=None)
 
 

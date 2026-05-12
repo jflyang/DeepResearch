@@ -246,3 +246,169 @@ def export_research_index(
 
     logger.info("research_index_exported task_id=%s path=%s", task.id, index_path)
     return index_path
+
+
+# === 外部报告导入导出 ===
+
+
+def export_imported_report(
+    task: ResearchTask,
+    report_text: str,
+    report_source: str,
+    parsed_summary: dict | None = None,
+    vault_path: Path | None = None,
+) -> Path:
+    """
+    导出外部研究报告原文为 Obsidian Markdown。
+
+    Args:
+        task: 研究任务
+        report_text: 报告原文
+        report_source: 报告来源（ChatGPT / Perplexity 等）
+        parsed_summary: 解析摘要（url_count, book_count, paper_count 等）
+        vault_path: 可选覆盖 vault 路径
+
+    Returns:
+        imported_report.md 文件路径
+    """
+    vault = vault_path or _get_vault_path()
+    research_dir = _research_dir(vault, task.topic)
+    ensure_dir(research_dir)
+    report_path = research_dir / "imported_report.md"
+
+    # 构建 frontmatter
+    frontmatter = (
+        "---\n"
+        f'title: "{task.topic}｜外部研究报告"\n'
+        f'source: "{report_source}"\n'
+        f'task_id: "{task.id}"\n'
+        "type: imported_report\n"
+        "---\n\n"
+    )
+
+    # 构建引用摘要
+    refs_section = ""
+    if parsed_summary:
+        urls = parsed_summary.get("urls", [])
+        books = parsed_summary.get("books", [])
+        papers = parsed_summary.get("papers", [])
+
+        refs_section = "\n# 解析出的引用\n\n"
+        refs_section += "## URLs\n\n"
+        if urls:
+            for u in urls:
+                title = u.get("title_hint") or u.get("url", "")
+                url = u.get("url", "")
+                refs_section += f"- [{title}]({url})\n"
+        else:
+            refs_section += "（无）\n"
+
+        refs_section += "\n## Books\n\n"
+        if books:
+            for b in books:
+                refs_section += f"- 《{b.get('title', '')}》"
+                if b.get("author_hint"):
+                    refs_section += f" — {b['author_hint']}"
+                refs_section += "\n"
+        else:
+            refs_section += "（无）\n"
+
+        refs_section += "\n## Papers\n\n"
+        if papers:
+            for p in papers:
+                refs_section += f"- {p.get('title', '')}"
+                if p.get("doi_hint"):
+                    refs_section += f" (DOI: {p['doi_hint']})"
+                if p.get("arxiv_id"):
+                    refs_section += f" (arXiv: {p['arxiv_id']})"
+                refs_section += "\n"
+        else:
+            refs_section += "（无）\n"
+
+    content = f"{frontmatter}# 外部研究报告\n\n{report_text}\n{refs_section}"
+
+    write_file(report_path, content)
+    logger.info("imported_report_exported task_id=%s path=%s", task.id, report_path)
+    return report_path
+
+
+def export_report_ingestion_index(
+    task: ResearchTask,
+    sources: list[SourceItem],
+    report_source: str,
+    parsed_url_count: int = 0,
+    parsed_book_count: int = 0,
+    parsed_paper_count: int = 0,
+    vault_path: Path | None = None,
+) -> Path:
+    """
+    生成报告导入任务的研究索引页。
+
+    在普通 index 基础上增加外部报告来源信息和按 source_origin 分类。
+    """
+    vault = vault_path or _get_vault_path()
+    research_dir = _research_dir(vault, task.topic)
+    ensure_dir(research_dir)
+    index_path = research_dir / "index.md"
+
+    now = datetime.now(UTC).strftime("%Y-%m-%d %H:%M")
+
+    # 按 source_origin 分类
+    direct_links = [s for s in sources if getattr(s, "source_origin", "") == "imported_report"]
+    enriched = [s for s in sources if getattr(s, "source_origin", "") == "imported_report_enriched"]
+    failed = [s for s in sources if s.download_status == DownloadStatus.FAILED]
+
+    lines = [
+        "---",
+        f"title: {task.topic}｜研究索引",
+        f"task_id: {task.id}",
+        "type: research_index",
+        f"created: {now}",
+        "---",
+        "",
+        f"# {task.topic}",
+        "",
+        "## 外部报告来源",
+        "",
+        f"- 报告来源：{report_source}",
+        f"- 解析 URL 数量：{parsed_url_count}",
+        f"- 解析书籍数量：{parsed_book_count}",
+        f"- 解析论文数量：{parsed_paper_count}",
+        f"- 总来源数：{len(sources)}",
+        "",
+        "## 报告中直接链接",
+        "",
+    ]
+
+    if direct_links:
+        for item in direct_links:
+            lines.append(f"- [{item.title}]({item.url})")
+    else:
+        lines.append("（无）")
+
+    lines.extend(["", "## 补充检索来源", ""])
+    if enriched:
+        for item in enriched:
+            lines.append(f"- [{item.title}]({item.url})")
+    else:
+        lines.append("（无）")
+
+    if failed:
+        lines.extend(["", "## 提取失败 / 需手动处理", ""])
+        for item in failed:
+            lines.append(f"- [{item.title}]({item.url})")
+
+    lines.extend([
+        "",
+        "## 下一步建议",
+        "",
+        "- 提取已保存来源的正文",
+        "- 手动处理失败的来源",
+        "- 交叉验证关键事实",
+        "",
+    ])
+
+    content = "\n".join(lines)
+    write_file(index_path, content)
+    logger.info("report_ingestion_index_exported task_id=%s path=%s", task.id, index_path)
+    return index_path

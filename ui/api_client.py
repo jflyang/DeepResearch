@@ -269,3 +269,55 @@ class APIClient:
         )
         r.raise_for_status()
         return r.json()
+
+    # === Report Ingestion ===
+
+    def create_report_import_task(
+        self,
+        topic: str,
+        report_text: str,
+        report_source: str | None = None,
+        output_language: str = "zh",
+        options: dict | None = None,
+    ) -> dict:
+        """创建外部报告导入任务。"""
+        payload = {
+            "topic": topic,
+            "report_text": report_text,
+            "report_source": report_source,
+            "output_language": output_language,
+        }
+        if options:
+            payload["options"] = options
+        r = httpx.post(self._url("/research/import-report"), json=payload, timeout=30.0)
+        r.raise_for_status()
+        return r.json()
+
+    def parse_report_import_task(self, task_id: str) -> dict:
+        """解析已导入的报告。"""
+        r = httpx.post(
+            self._url(f"/research/import-report/{task_id}/parse"), timeout=30.0
+        )
+        r.raise_for_status()
+        return r.json()
+
+    def run_report_import_task(self, task_id: str) -> dict:
+        """执行报告导入任务。"""
+        r = httpx.post(
+            self._url(f"/research/import-report/{task_id}/run"), timeout=TIMEOUT
+        )
+        r.raise_for_status()
+        return r.json()
+
+    def get_imported_report(self, task_id: str, include_full: bool = False) -> dict:
+        """获取导入报告详情。"""
+        params = {}
+        if include_full:
+            params["include_full"] = "true"
+        r = httpx.get(
+            self._url(f"/research/tasks/{task_id}/imported-report"),
+            params=params,
+            timeout=10.0,
+        )
+        r.raise_for_status()
+        return r.json()

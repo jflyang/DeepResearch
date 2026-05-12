@@ -52,6 +52,9 @@ class ResearchResultSummary(BaseModel):
 # === Provider Factory ===
 
 
+# === Provider Factory ===
+
+
 def create_search_providers() -> dict[str, list[BaseSearchProvider]]:
     """
     根据配置创建可用的搜索 Provider 实例。
@@ -100,10 +103,14 @@ class ResearchService:
         providers: dict[str, list[BaseSearchProvider]] | None = None,
         max_concurrency: int = 3,
         ai_gateway=None,
+        search_router=None,
     ):
         self._providers = providers or create_search_providers()
         self._semaphore = asyncio.Semaphore(max_concurrency)
         self._ai_gateway = ai_gateway
+        self._search_router = search_router
+        # 如果显式传入 providers（测试场景），不自动初始化 SearchRouter
+        self._use_legacy_providers = providers is not None and search_router is None
 
     def create_task(self, request: CreateResearchTaskRequest) -> ResearchTask:
         """创建研究任务。"""
@@ -370,6 +377,17 @@ class ResearchService:
                 f"Language planning failed, using fallback: {e}",
                 level="warning",
             )
+            # Trace: record fallback
+            get_recorder().record(
+                task_id=task.id,
+                step=TraceStep.LLM_CALL_FAILED,
+                phase=TracePhase.PLANNING,
+                level="warning",
+                message=f"Language planning fallback: {str(e)[:100]}",
+                service="ResearchLanguagePlannerService",
+                input_summary={"task_name": "language_planning"},
+                error_message=str(e)[:200],
+            )
             return None
 
     # ============================================================
@@ -399,7 +417,26 @@ class ResearchService:
     async def _collect_search_results_rich(
         self, queries: list[RichExpandedQuery]
     ) -> tuple[list[SearchResult], list[str]]:
-        """并发执行搜索（RichExpandedQuery 版本）。"""
+        """并发执行搜索（RichExpandedQuery 版本）。优先使用 SearchRouter。"""
+        # 优先使用 SearchRouter（免费 MVP 路径）
+        if self._search_router is not None:
+            try:
+                results = await self._search_router.search_many(queries)
+                return results, []
+            except Exception as e:
+                logger.warning("search_router_failed fallback_to_legacy error=%s", str(e))
+
+        # 尝试延迟初始化 SearchRouter（仅在非 legacy 模式下）
+        if not self._use_legacy_providers and self._search_router is None:
+            try:
+                from services.search_router import SearchRouter
+                self._search_router = SearchRouter()
+                results = await self._search_router.search_many(queries)
+                return results, []
+            except Exception as e:
+                logger.debug("search_router_init_failed using_legacy error=%s", str(e))
+
+        # Legacy: 直接使用 provider dict
         settings = get_settings()
         limit = settings.default_result_limit
 
