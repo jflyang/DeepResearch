@@ -38,6 +38,17 @@ class APIClient:
         r.raise_for_status()
         return r.json()
 
+    def list_tasks(self, limit: int = 50, offset: int = 0, status: str | None = None, q: str | None = None) -> dict:
+        """获取研究任务列表。"""
+        params = {"limit": limit, "offset": offset}
+        if status:
+            params["status"] = status
+        if q:
+            params["q"] = q
+        r = httpx.get(self._url("/research/tasks"), params=params, timeout=10.0)
+        r.raise_for_status()
+        return r.json()
+
     def test_llm(self, provider: str = "ollama_lan", model: str = "qwen3:8b") -> dict:
         r = httpx.post(
             self._url("/settings/llm/test"),

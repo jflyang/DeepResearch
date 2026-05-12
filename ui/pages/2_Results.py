@@ -7,14 +7,75 @@ st.header("📊 研究结果")
 
 client = APIClient()
 
-# === Task ID 输入 ===
+# === 历史任务列表（侧边栏） ===
 
-default_task_id = st.session_state.get("last_task_id", "")
-task_id = st.text_input("Task ID", value=default_task_id, placeholder="输入任务 ID")
+with st.sidebar:
+    st.subheader("📚 历史研究任务")
+
+    # 搜索和筛选
+    history_q = st.text_input("搜索主题", key="history_search", placeholder="输入关键词...")
+    history_status = st.selectbox(
+        "状态筛选",
+        ["全部", "completed", "running", "pending", "failed"],
+        key="history_status",
+    )
+
+    if st.button("🔄 刷新列表", key="refresh_history"):
+        pass  # 触发 rerun
+
+    # 获取任务列表
+    try:
+        status_filter = history_status if history_status != "全部" else None
+        q_filter = history_q if history_q else None
+        tasks_data = client.list_tasks(limit=30, status=status_filter, q=q_filter)
+        history_tasks = tasks_data.get("items", [])
+    except Exception:
+        history_tasks = []
+
+    if history_tasks:
+        for ht in history_tasks:
+            status_icon = {"completed": "✅", "running": "⏳", "pending": "🕐", "failed": "❌"}.get(ht["status"], "❓")
+            topic_short = ht["topic"][:25] + ("..." if len(ht["topic"]) > 25 else "")
+            source_info = f"{ht.get('source_count', 0)} sources"
+            hq = ht.get("high_quality_count", 0)
+            if hq:
+                source_info += f" · {hq} S/A"
+            export_badge = " · 📤" if ht.get("exported") else ""
+            time_str = (ht.get("created_at") or "")[:10]
+
+            label = f"{status_icon} **{topic_short}**\n{source_info}{export_badge} · {time_str}"
+
+            if st.button(
+                f"{status_icon} {topic_short}",
+                key=f"hist_{ht['task_id']}",
+                help=f"{ht['topic']} | {ht['status']} | {source_info}",
+                use_container_width=True,
+            ):
+                st.session_state["selected_task_id"] = ht["task_id"]
+                st.rerun()
+
+        st.caption(f"共 {tasks_data.get('total', 0)} 个任务")
+    else:
+        st.caption("暂无研究任务。")
+
+# === Task ID 选择逻辑 ===
+
+# 优先级：selected_task_id > last_task_id > 手动输入
+selected_id = st.session_state.get("selected_task_id", "") or st.session_state.get("last_task_id", "")
+
+task_id = st.text_input("Task ID", value=selected_id, placeholder="输入任务 ID 或从左侧选择")
 
 if not task_id.strip():
-    st.info("请输入 Task ID 或先在 Research 页面创建任务。")
-    st.stop()
+    if history_tasks:
+        # 自动选择第一个 completed 任务
+        completed = [t for t in history_tasks if t["status"] == "completed"]
+        if completed:
+            task_id = completed[0]["task_id"]
+        else:
+            task_id = history_tasks[0]["task_id"]
+    else:
+        st.info("请输入 Task ID 或先在 Research 页面创建任务。")
+        st.stop()
 
 task_id = task_id.strip()
 
@@ -56,8 +117,35 @@ categories = sources_data.get("categories", {})
 all_items = sources_data.get("items", [])
 total = sources_data.get("total", 0)
 
-if total == 0:
+has_sources = total > 0
+
+if not has_sources:
     st.info("暂无来源数据。请先运行研究任务。")
+
+# === 执行流程 Trace（始终显示，不受来源数据影响） ===
+
+st.divider()
+with st.expander("🧭 执行流程 / Research Trace", expanded=not has_sources):
+    _render_trace_view(task_id, client)
+
+st.divider()
+
+if not has_sources:
+    # 事件日志也始终可见
+    with st.expander("📋 任务事件日志", expanded=False):
+        try:
+            events_data = client.get_events(task_id, limit=30)
+            events = events_data.get("events", [])
+            if events:
+                for event in events:
+                    level = event.get("level", "info")
+                    icon = {"info": "ℹ️", "warning": "⚠️", "error": "❌"}.get(level, "ℹ️")
+                    time_str = event.get("created_at", "")[:19].replace("T", " ")
+                    st.caption(f"{icon} `{time_str}` **{event['event_type']}** — {event['message']}")
+            else:
+                st.info("暂无事件记录。")
+        except Exception as e:
+            st.warning(f"无法加载事件日志：{e}")
     st.stop()
 
 # === 统计卡片 ===
@@ -242,9 +330,6 @@ with st.expander("📋 研究索引预览", expanded=False):
 st.divider()
 
 # === 事件日志 ===
-
-with st.expander("🧭 执行流程 / Trace", expanded=False):
-    _render_trace_view(task_id, client)
 
 with st.expander("📋 任务事件日志", expanded=False):
     try:

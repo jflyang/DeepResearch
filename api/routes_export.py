@@ -60,6 +60,10 @@ async def export_index(task_id: str):
     except ResearchError as e:
         raise HTTPException(status_code=400, detail=e.message)
 
+    # 标记导出状态
+    task_data["exported"] = True
+    task_data["export_path"] = str(path)
+
     return {
         "success": True,
         "task_id": task_id,

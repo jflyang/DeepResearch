@@ -222,6 +222,9 @@ class ResearchService:
         # 5. 转换为 SourceItem（带语言元数据）
         source_items = self._to_source_items(task.id, scored, language_plan=language_plan)
 
+        # 保存到实例属性，供路由层读取
+        self.last_source_items = source_items
+
         # Trace scoring (after source_items are created so we have levels)
         level_counts = {}
         for item in source_items:

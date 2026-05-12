@@ -27,6 +27,15 @@ def _reset():
     reset_settings()
 
 
+@pytest.fixture(autouse=True)
+def _no_runtime_settings():
+    """隔离测试：不读取真实 runtime_settings.json。"""
+    with patch("core.config._load_runtime_settings", return_value={}):
+        reset_settings()
+        yield
+        reset_settings()
+
+
 # === 创建 deepseek provider ===
 
 

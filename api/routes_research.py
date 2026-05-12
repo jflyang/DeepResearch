@@ -1,8 +1,9 @@
 """研究任务路由。"""
 
 import logging
+from typing import Optional
 
-from fastapi import APIRouter, HTTPException
+from fastapi import APIRouter, HTTPException, Query
 from pydantic import BaseModel, Field
 
 from models.enums import TaskMode, TaskStatus
@@ -59,6 +60,65 @@ async def create_task(request: CreateTaskRequest):
     return CreateTaskResponse(task_id=task.id, status=task.status.value)
 
 
+@router.get("/tasks")
+async def list_tasks(
+    limit: int = Query(default=50, ge=1, le=200),
+    offset: int = Query(default=0, ge=0),
+    status: Optional[str] = Query(default=None),
+    q: Optional[str] = Query(default=None),
+):
+    """列出研究任务（按创建时间倒序）。"""
+    # 从内存存储构建列表
+    all_tasks = []
+    for task_id, task_data in _tasks.items():
+        t = task_data["task"]
+        # 状态过滤
+        if status and t.status.value != status:
+            continue
+        # 主题搜索
+        if q and q.lower() not in t.topic.lower():
+            continue
+
+        # 计算来源统计
+        items = _source_items.get(task_id, [])
+        source_count = len(items)
+        high_quality_count = sum(1 for i in items if i.source_level.value in ("S", "A"))
+        extracted_count = sum(1 for i in items if i.download_status.value in ("extracted", "exported"))
+
+        # 导出状态（从 task_data 推断）
+        exported = bool(task_data.get("exported"))
+        export_path = task_data.get("export_path")
+
+        all_tasks.append({
+            "task_id": t.id,
+            "topic": t.topic,
+            "mode": t.mode.value,
+            "status": t.status.value,
+            "depth": t.depth if hasattr(t, 'depth') else "standard",
+            "created_at": t.created_at.isoformat(),
+            "completed_at": t.completed_at.isoformat() if t.completed_at else None,
+            "source_count": source_count,
+            "high_quality_count": high_quality_count,
+            "extracted_count": extracted_count,
+            "exported": exported,
+            "export_path": export_path,
+        })
+
+    # 按创建时间倒序
+    all_tasks.sort(key=lambda x: x["created_at"], reverse=True)
+
+    # 分页
+    total = len(all_tasks)
+    paginated = all_tasks[offset:offset + limit]
+
+    return {
+        "items": paginated,
+        "total": total,
+        "limit": limit,
+        "offset": offset,
+    }
+
+
 @router.post("/tasks/{task_id}/run")
 async def run_research(task_id: str):
     """运行初始研究。"""
@@ -74,8 +134,8 @@ async def run_research(task_id: str):
     service = ResearchService()
     summary = await service.run_initial_research(task)
 
-    # 存储 source_items（从 service 内部获取）
-    # MVP: 重新运行 pipeline 获取 items 不理想，但保持简单
+    # 存储 source_items 到内存（供 GET /sources 和 export 使用）
+    _source_items[task_id] = getattr(service, "last_source_items", [])
     _tasks[task_id]["summary"] = summary.model_dump()
 
     return summary.model_dump()
