@@ -92,57 +92,50 @@ def _render_source_list(items: list[dict], api_client: APIClient, show_origin: b
                             try:
                                 result = api_client.extract_source(item["id"])
                                 if result.get("status") == "extracted":
-                                    st.success("✅")
-                                    # 显示提取预览
-                                    preview = result.get("content_preview", "")
-                                    if preview:
-                                        st.caption(f"📄 {preview[:200]}...")
+                                    st.success(f"✅ 提取成功（{result.get('content_length', 0)} 字）")
                                 elif result.get("status") == "skipped":
                                     st.warning(result.get("error", "已跳过"))
                                 else:
-                                    st.warning("失败")
+                                    st.error(result.get("error", "提取失败"))
                             except Exception as e:
                                 st.error(f"失败: {e}")
                 elif dl_status in ("extracted", "exported"):
-                    if st.button("👁️ 查看", key=f"{key_prefix}view_{item['id']}"):
-                        try:
-                            content_data = api_client.get_extracted_content(item["id"])
-                            if content_data.get("found"):
-                                st.session_state[f"_show_content_{item['id']}"] = content_data
-                        except Exception as e:
-                            st.error(f"加载失败: {e}")
+                    st.caption("✅ 已提取")
                 elif dl_status == "failed":
                     st.caption("❌ 失败")
                 elif dl_status == "skipped":
                     st.caption("⏭️ 跳过")
 
-            # 展示已提取内容（如果用户点击了查看）
-            content_key = f"_show_content_{item['id']}"
-            if content_key in st.session_state:
-                content_data = st.session_state[content_key]
-                with st.expander(f"📄 提取内容 — {content_data.get('title', '')[:50]}", expanded=True):
-                    if content_data.get("summary"):
-                        st.markdown(f"**摘要：** {content_data['summary']}")
-                    if content_data.get("people"):
-                        st.markdown(f"**人物：** {', '.join(content_data['people'])}")
-                    if content_data.get("concepts"):
-                        st.markdown(f"**概念：** {', '.join(content_data['concepts'])}")
-                    if content_data.get("key_quotes"):
-                        st.markdown("**关键摘录：**")
-                        for q in content_data["key_quotes"][:5]:
-                            st.markdown(f"> {q}")
-                    if content_data.get("content"):
-                        st.text_area(
-                            "正文",
-                            value=content_data["content"],
-                            height=300,
-                            key=f"{key_prefix}content_area_{item['id']}",
-                            disabled=True,
-                        )
-                    st.caption(f"字数：{content_data.get('content_length', 0)}")
-                    if st.button("关闭", key=f"{key_prefix}close_{item['id']}"):
-                        del st.session_state[content_key]
-                        st.rerun()
+            # 已提取的来源：显示可展开的内容预览
+            if dl_status in ("extracted", "exported"):
+                with st.expander("👁️ 查看提取内容", expanded=False):
+                    try:
+                        content_data = api_client.get_extracted_content(item["id"])
+                        if content_data.get("found"):
+                            if content_data.get("summary"):
+                                st.markdown(f"**摘要：** {content_data['summary']}")
+                            if content_data.get("people"):
+                                st.markdown(f"**人物：** {', '.join(content_data['people'][:10])}")
+                            if content_data.get("concepts"):
+                                st.markdown(f"**概念：** {', '.join(content_data['concepts'][:10])}")
+                            if content_data.get("key_quotes"):
+                                st.markdown("**关键摘录：**")
+                                for q in content_data["key_quotes"][:3]:
+                                    st.markdown(f"> {q}")
+                            content_text = content_data.get("content", "")
+                            if content_text:
+                                st.text_area(
+                                    "正文预览",
+                                    value=content_text[:3000],
+                                    height=200,
+                                    key=f"{key_prefix}content_{item['id']}",
+                                    disabled=True,
+                                )
+                            st.caption(f"总字数：{content_data.get('content_length', 0)}")
+                        else:
+                            st.caption("内容未找到")
+                    except Exception as e:
+                        st.caption(f"加载失败: {e}")
             st.divider()
 
 
@@ -641,29 +634,22 @@ col1.metric("总来源", total)
 # 可点击的筛选指标
 with col2:
     if st.button(f"**{len(s_a_items)}**\n\n高质量 (S/A)", key="filter_sa", use_container_width=True):
-        st.session_state["level_filter"] = "S"  # 先显示 S，用户可再切 A
         st.session_state["_filter_preset"] = "high_quality"
-        st.rerun()
 
 with col3:
     if st.button(f"**{len(book_items)}**\n\n图书资料", key="filter_books", use_container_width=True):
-        st.session_state["type_filter"] = "book"
         st.session_state["_filter_preset"] = "books"
-        st.rerun()
 
 with col4:
     if st.button(f"**{len(extracted_items)}**\n\n已提取正文", key="filter_extracted", use_container_width=True):
-        st.session_state["status_filter"] = "extracted"
         st.session_state["_filter_preset"] = "extracted"
-        st.rerun()
 
 with col5:
     if st.button(f"**{len(gossip_items)}**\n\n八卦线索", key="filter_gossip", use_container_width=True):
         st.session_state["_filter_preset"] = "gossip"
-        st.rerun()
 
 # 处理筛选预设
-_filter_preset = st.session_state.pop("_filter_preset", None)
+_filter_preset = st.session_state.get("_filter_preset")
 
 if _is_report_ingestion:
     # 报告导入特有的统计
@@ -743,12 +729,13 @@ if _filter_preset:
         "extracted": "✅ 已提取正文",
         "gossip": "🗣️ 八卦线索",
     }
-    st.info(f"当前筛选：{preset_labels.get(_filter_preset, _filter_preset)}")
-    if st.button("✕ 清除筛选", key="clear_filter"):
-        for key in ("level_filter", "type_filter", "status_filter"):
-            if key in st.session_state:
-                st.session_state[key] = "全部"
-        st.rerun()
+    col_label, col_clear = st.columns([4, 1])
+    with col_label:
+        st.info(f"当前筛选：{preset_labels.get(_filter_preset, _filter_preset)}")
+    with col_clear:
+        if st.button("✕ 清除", key="clear_filter"):
+            del st.session_state["_filter_preset"]
+            st.rerun()
 
 filter_col1, filter_col2, filter_col3, filter_col4 = st.columns(4)
 
