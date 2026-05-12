@@ -1,3 +1,4 @@
+<<<<<<< HEAD
 # Research Collector - 慢速深度研究资料收集器
 
 本地研究工作台：输入研究主题 → 自动扩展搜索词 → 多源搜索 → 去重评分分类 → 下载提取正文 → LLM 分析 → 沉淀至 Obsidian Vault。
@@ -382,3 +383,7 @@ python -m pytest --cov=app --cov=services --cov=providers
 - 多轮深度研究
 - Vault 增量同步
 - Backlinks 自动维护
+=======
+# DeepResearch
+ To conduct in-depth research on a topic from online content
+>>>>>>> 3a00fa24d99a517df5e91953b78c9d2d671486ea
