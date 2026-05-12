@@ -90,6 +90,34 @@ class APIClient:
         r.raise_for_status()
         return r.json()
 
+    def extract_source_async(self, source_id: str) -> dict:
+        """异步提取来源正文（加入队列，立即返回）。"""
+        r = httpx.post(self._url(f"/sources/{source_id}/extract-async"), timeout=10.0)
+        r.raise_for_status()
+        return r.json()
+
+    def extract_batch_async(self, source_ids: list[str]) -> dict:
+        """批量异步提取多个来源。"""
+        r = httpx.post(
+            self._url("/sources/extract-batch-async"),
+            json={"source_ids": source_ids},
+            timeout=10.0,
+        )
+        r.raise_for_status()
+        return r.json()
+
+    def get_extraction_queue_status(self) -> dict:
+        """获取提取队列状态。"""
+        r = httpx.get(self._url("/sources/extraction-queue/status"), timeout=10.0)
+        r.raise_for_status()
+        return r.json()
+
+    def get_extraction_status(self, source_id: str) -> dict:
+        """获取单个来源的提取状态。"""
+        r = httpx.get(self._url(f"/sources/{source_id}/extraction-status"), timeout=10.0)
+        r.raise_for_status()
+        return r.json()
+
     def get_extracted_content(self, source_id: str) -> dict:
         """获取已提取的正文内容。"""
         r = httpx.get(self._url(f"/sources/{source_id}/content"), timeout=10.0)

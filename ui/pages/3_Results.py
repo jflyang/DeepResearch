@@ -92,17 +92,14 @@ def _render_source_list(items: list[dict], api_client: APIClient, show_origin: b
             with action_col:
                 if dl_status == "pending":
                     if st.button("📥 提取", key=f"{key_prefix}extract_{item['id']}"):
-                        with st.spinner("提取中..."):
-                            try:
-                                result = api_client.extract_source(item["id"])
-                                if result.get("status") == "extracted":
-                                    st.success(f"✅ 提取成功（{result.get('content_length', 0)} 字）")
-                                elif result.get("status") == "skipped":
-                                    st.warning(result.get("error", "已跳过"))
-                                else:
-                                    st.error(result.get("error", "提取失败"))
-                            except Exception as e:
-                                st.error(f"失败: {e}")
+                        try:
+                            result = api_client.extract_source_async(item["id"])
+                            st.toast(f"⏳ {result.get('message', '已加入队列')}")
+                            st.rerun()
+                        except Exception as e:
+                            st.error(f"失败: {e}")
+                elif dl_status == "downloading":
+                    st.caption("⏳ 提取中...")
                 elif dl_status in ("extracted", "exported"):
                     st.caption("✅ 已提取")
                 elif dl_status == "failed":
@@ -620,8 +617,6 @@ if _is_report_ingestion:
     except Exception:
         _report_detail = None
 
-st.divider()
-
 # === 加载来源 ===
 
 try:
@@ -641,11 +636,8 @@ if not has_sources:
 
 # === 执行流程 Trace（始终显示，不受来源数据影响） ===
 
-st.divider()
 with st.expander("🧭 执行流程 / Research Trace", expanded=not has_sources):
     _render_trace_view(task_id, client)
-
-st.divider()
 
 if not has_sources:
     # 事件日志也始终可见
@@ -709,6 +701,29 @@ if _is_report_ingestion:
     ri_col2.metric("补充检索来源", len(enriched))
     ri_col3.metric("提取失败", len(failed_items))
 
+# === 提取队列状态 ===
+
+try:
+    _queue_status = client.get_extraction_queue_status()
+    _queue_len = _queue_status.get("queue_length", 0)
+    _worker_running = _queue_status.get("worker_running", False)
+    _statuses = _queue_status.get("statuses", {})
+    _extracting_count = sum(1 for s in _statuses.values() if s.get("status") == "extracting")
+    _queued_count = sum(1 for s in _statuses.values() if s.get("status") == "queued")
+    _done_count = sum(1 for s in _statuses.values() if s.get("status") == "done")
+    _failed_count = sum(1 for s in _statuses.values() if s.get("status") == "failed")
+
+    if _worker_running or _queued_count > 0 or _extracting_count > 0:
+        st.info(
+            f"⏳ 提取队列：正在提取 {_extracting_count} 个 · 排队 {_queued_count} 个 · "
+            f"已完成 {_done_count} 个"
+            + (f" · 失败 {_failed_count} 个" if _failed_count else "")
+        )
+        if st.button("🔄 刷新状态", key="refresh_queue"):
+            st.rerun()
+except Exception:
+    pass  # 队列状态不可用时静默忽略
+
 st.divider()
 
 # === 导出到 Obsidian ===
@@ -732,7 +747,7 @@ else:
 
     if vault_usable:
         st.markdown(f"✅ Vault 可用: `{vault_path}`")
-        st.caption(f"导出目标: `{vault_path}/Research/{task['topic']}/index.md`")
+        st.caption(f"导出目标: `{vault_path}/Research/{task['topic']}/research.md`")
 
         col_export1, col_export2 = st.columns(2)
         with col_export1:
@@ -787,7 +802,7 @@ elif not (vault_usable if "vault_usable" in dir() else False):
     st.info("📁 请先到 Settings 配置 Obsidian Vault 路径。")
     st.page_link("pages/9_Settings.py", label="前往 Settings 配置 Vault", icon="⚙️")
 else:
-    st.caption(f"将从 sources/ 目录读取 {_extracted_count} 篇已清洗的 .md 文件，合并为研究文档 index.md。")
+    st.caption(f"将从 sources/ 目录读取 {_extracted_count} 篇已清洗的 .md 文件，合并为研究文档 research.md。")
 
     if st.button("🧹 清洗并合成研究文档", type="primary", key="synthesize_btn"):
         with st.spinner("正在从 sources/ 读取资料并合成研究文档……"):
@@ -797,8 +812,8 @@ else:
                     st.success("✅ 研究文档合成完成！")
                     sr_col1, sr_col2 = st.columns(2)
                     sr_col1.metric("合并来源数", syn_result.get("source_count", 0))
-                    if syn_result.get("index_path"):
-                        st.markdown(f"📄 **index.md 路径：** `{syn_result['index_path']}`")
+                    if syn_result.get("research_path"):
+                        st.markdown(f"📄 **research.md 路径：** `{syn_result['research_path']}`")
                 else:
                     st.error(f"合成失败: {syn_result.get('error', '未知错误')}")
             except Exception as e:

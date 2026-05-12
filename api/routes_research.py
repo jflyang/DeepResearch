@@ -722,7 +722,7 @@ async def synthesize_task(task_id: str):
         "task_id": task_id,
         "synthesized": True,
         "source_count": result["source_count"],
-        "index_path": result["index_path"],
+        "research_path": result["research_path"],
     }
 
 

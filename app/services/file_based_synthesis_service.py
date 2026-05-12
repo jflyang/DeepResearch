@@ -1,8 +1,8 @@
-"""文件驱动的研究合成服务 - 从 sources/ 目录读取 .md 文件，合并为 index.md。
+"""文件驱动的研究合成服务 - 从 sources/ 目录读取 .md 文件，合并为 research.md。
 
 工作流程：
-1. 用户点击"提取" → 抓取正文 → LLM 清洗 → 保存为 .md 到 Obsidian/Research/{topic}/sources/
-2. 用户点击"清洗并合成研究文档" → 读取 sources/ 下所有 .md → 提取事实 → 去重 → 合成 → 写入 index.md
+1. 用户点击"提取" → 异步抓取正文 → 保存为 .md 到 Obsidian/Research/{topic}/sources/
+2. 用户点击"清洗并合成研究文档" → 读取 sources/ 下所有 .md → 提取事实 → 去重 → 合成 → 写入 research.md
 
 本服务负责第 2 步：从文件系统读取已清洗的 source notes，合并为研究文档。
 """
@@ -105,7 +105,7 @@ def synthesize_from_source_files(
     vault_path: str,
     topic: str,
 ) -> dict:
-    """从 sources/ 目录读取所有 .md 文件，合成为 index.md。
+    """从 sources/ 目录读取所有 .md 文件，合成为 research.md。
 
     Args:
         vault_path: Obsidian vault 路径
@@ -115,7 +115,7 @@ def synthesize_from_source_files(
         {
             "success": bool,
             "source_count": int,
-            "index_path": str,
+            "research_path": str,
             "error": str | None,
         }
     """
@@ -125,7 +125,7 @@ def synthesize_from_source_files(
         return {
             "success": False,
             "source_count": 0,
-            "index_path": "",
+            "research_path": "",
             "error": "sources/ 目录下没有 .md 文件。请先提取来源正文。",
         }
 
@@ -142,28 +142,28 @@ def synthesize_from_source_files(
         return {
             "success": False,
             "source_count": 0,
-            "index_path": "",
+            "research_path": "",
             "error": "无法读取 sources/ 目录下的文件。",
         }
 
-    # 合成 index.md
-    index_content = _render_merged_index(topic, source_data)
+    # 合成 research.md
+    research_content = _render_merged_index(topic, source_data)
 
-    # 写入 index.md（使用 source 文件所在的 research 目录）
+    # 写入 research.md（使用 source 文件所在的 research 目录）
     first_source_path = Path(source_data[0]["path"])
     research_dir = first_source_path.parent.parent  # sources/ 的上级
-    index_path = research_dir / "index.md"
-    index_path.write_text(index_content, encoding="utf-8")
+    research_path = research_dir / "research.md"
+    research_path.write_text(research_content, encoding="utf-8")
 
     logger.info(
-        "file_based_synthesis_done topic=%s sources=%d index=%s",
-        topic, len(source_data), index_path,
+        "file_based_synthesis_done topic=%s sources=%d research=%s",
+        topic, len(source_data), research_path,
     )
 
     return {
         "success": True,
         "source_count": len(source_data),
-        "index_path": str(index_path),
+        "research_path": str(research_path),
         "error": None,
     }
 
