@@ -93,14 +93,56 @@ def _render_source_list(items: list[dict], api_client: APIClient, show_origin: b
                                 result = api_client.extract_source(item["id"])
                                 if result.get("status") == "extracted":
                                     st.success("✅")
+                                    # 显示提取预览
+                                    preview = result.get("content_preview", "")
+                                    if preview:
+                                        st.caption(f"📄 {preview[:200]}...")
+                                elif result.get("status") == "skipped":
+                                    st.warning(result.get("error", "已跳过"))
                                 else:
                                     st.warning("失败")
                             except Exception as e:
                                 st.error(f"失败: {e}")
                 elif dl_status in ("extracted", "exported"):
-                    st.caption(f"✅ {dl_status}")
+                    if st.button("👁️ 查看", key=f"{key_prefix}view_{item['id']}"):
+                        try:
+                            content_data = api_client.get_extracted_content(item["id"])
+                            if content_data.get("found"):
+                                st.session_state[f"_show_content_{item['id']}"] = content_data
+                        except Exception as e:
+                            st.error(f"加载失败: {e}")
                 elif dl_status == "failed":
                     st.caption("❌ 失败")
+                elif dl_status == "skipped":
+                    st.caption("⏭️ 跳过")
+
+            # 展示已提取内容（如果用户点击了查看）
+            content_key = f"_show_content_{item['id']}"
+            if content_key in st.session_state:
+                content_data = st.session_state[content_key]
+                with st.expander(f"📄 提取内容 — {content_data.get('title', '')[:50]}", expanded=True):
+                    if content_data.get("summary"):
+                        st.markdown(f"**摘要：** {content_data['summary']}")
+                    if content_data.get("people"):
+                        st.markdown(f"**人物：** {', '.join(content_data['people'])}")
+                    if content_data.get("concepts"):
+                        st.markdown(f"**概念：** {', '.join(content_data['concepts'])}")
+                    if content_data.get("key_quotes"):
+                        st.markdown("**关键摘录：**")
+                        for q in content_data["key_quotes"][:5]:
+                            st.markdown(f"> {q}")
+                    if content_data.get("content"):
+                        st.text_area(
+                            "正文",
+                            value=content_data["content"],
+                            height=300,
+                            key=f"{key_prefix}content_area_{item['id']}",
+                            disabled=True,
+                        )
+                    st.caption(f"字数：{content_data.get('content_length', 0)}")
+                    if st.button("关闭", key=f"{key_prefix}close_{item['id']}"):
+                        del st.session_state[content_key]
+                        st.rerun()
             st.divider()
 
 
@@ -595,10 +637,33 @@ gossip_items = [i for i in all_items if i.get("gossip_score", 0) >= 0.3]
 
 col1, col2, col3, col4, col5 = st.columns(5)
 col1.metric("总来源", total)
-col2.metric("高质量 (S/A)", len(s_a_items))
-col3.metric("图书资料", len(book_items))
-col4.metric("已提取正文", len(extracted_items))
-col5.metric("八卦线索", len(gossip_items))
+
+# 可点击的筛选指标
+with col2:
+    if st.button(f"**{len(s_a_items)}**\n\n高质量 (S/A)", key="filter_sa", use_container_width=True):
+        st.session_state["level_filter"] = "S"  # 先显示 S，用户可再切 A
+        st.session_state["_filter_preset"] = "high_quality"
+        st.rerun()
+
+with col3:
+    if st.button(f"**{len(book_items)}**\n\n图书资料", key="filter_books", use_container_width=True):
+        st.session_state["type_filter"] = "book"
+        st.session_state["_filter_preset"] = "books"
+        st.rerun()
+
+with col4:
+    if st.button(f"**{len(extracted_items)}**\n\n已提取正文", key="filter_extracted", use_container_width=True):
+        st.session_state["status_filter"] = "extracted"
+        st.session_state["_filter_preset"] = "extracted"
+        st.rerun()
+
+with col5:
+    if st.button(f"**{len(gossip_items)}**\n\n八卦线索", key="filter_gossip", use_container_width=True):
+        st.session_state["_filter_preset"] = "gossip"
+        st.rerun()
+
+# 处理筛选预设
+_filter_preset = st.session_state.pop("_filter_preset", None)
 
 if _is_report_ingestion:
     # 报告导入特有的统计
@@ -670,25 +735,49 @@ st.divider()
 
 st.subheader("🔍 筛选与排序")
 
+# 如果有筛选预设，显示清除按钮
+if _filter_preset:
+    preset_labels = {
+        "high_quality": "🏆 高质量 (S/A)",
+        "books": "📚 图书资料",
+        "extracted": "✅ 已提取正文",
+        "gossip": "🗣️ 八卦线索",
+    }
+    st.info(f"当前筛选：{preset_labels.get(_filter_preset, _filter_preset)}")
+    if st.button("✕ 清除筛选", key="clear_filter"):
+        for key in ("level_filter", "type_filter", "status_filter"):
+            if key in st.session_state:
+                st.session_state[key] = "全部"
+        st.rerun()
+
 filter_col1, filter_col2, filter_col3, filter_col4 = st.columns(4)
 
 with filter_col1:
+    _default_level = 0
+    if _filter_preset == "high_quality":
+        _default_level = 0  # 会在后面用代码过滤
     level_filter = st.selectbox(
         "来源等级",
         ["全部", "S", "A", "B", "C", "D"],
-        index=0,
+        index=_default_level,
         key="level_filter",
     )
 
 with filter_col2:
     type_options = ["全部"] + sorted(set(i["source_type"] for i in all_items))
-    type_filter = st.selectbox("来源类型", type_options, index=0, key="type_filter")
+    _default_type = 0
+    if _filter_preset == "books" and "book" in type_options:
+        _default_type = type_options.index("book")
+    type_filter = st.selectbox("来源类型", type_options, index=_default_type, key="type_filter")
 
 with filter_col3:
+    _default_status = 0
+    if _filter_preset == "extracted":
+        _default_status = 0  # 会在后面用代码过滤
     status_filter = st.selectbox(
         "下载状态",
         ["全部", "pending", "extracted", "exported", "failed"],
-        index=0,
+        index=_default_status,
         key="status_filter",
     )
 
@@ -707,13 +796,25 @@ hide_low = st.checkbox("隐藏低质量来源 (D 级)", value=True, key="hide_lo
 # 应用筛选
 filtered = all_items.copy()
 
-if level_filter != "全部":
-    filtered = [i for i in filtered if i["source_level"] == level_filter]
-if type_filter != "全部":
-    filtered = [i for i in filtered if i["source_type"] == type_filter]
-if status_filter != "全部":
-    filtered = [i for i in filtered if i["download_status"] == status_filter]
-if hide_low:
+# 应用预设筛选（优先于下拉框）
+if _filter_preset == "high_quality":
+    filtered = [i for i in filtered if i["source_level"] in ("S", "A")]
+elif _filter_preset == "gossip":
+    filtered = [i for i in filtered if i.get("gossip_score", 0) >= 0.3]
+elif _filter_preset == "extracted":
+    filtered = [i for i in filtered if i["download_status"] in ("extracted", "exported")]
+elif _filter_preset == "books":
+    filtered = [i for i in filtered if i["source_type"] == "book"]
+else:
+    # 正常下拉框筛选
+    if level_filter != "全部":
+        filtered = [i for i in filtered if i["source_level"] == level_filter]
+    if type_filter != "全部":
+        filtered = [i for i in filtered if i["source_type"] == type_filter]
+    if status_filter != "全部":
+        filtered = [i for i in filtered if i["download_status"] == status_filter]
+
+if hide_low and not _filter_preset:
     filtered = [i for i in filtered if i["source_level"] != "D"]
 if keyword:
     kw = keyword.lower()

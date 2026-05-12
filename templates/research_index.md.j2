@@ -3,64 +3,164 @@ title: "{{ topic }}｜研究索引"
 created_at: "{{ created_at }}"
 status: "{{ status }}"
 total_sources: {{ total_sources }}
+high_quality_sources: {{ high_quality_count }}
+book_sources: {{ book_count }}
+content_extracted: {{ content_extracted }}
 tags:
   - research-index
 ---
 
 # {{ topic }}｜研究索引
 
-## 研究目标
+## 研究概览
 
-{{ research_goal }}
+{{ overview }}
 
+{% if topic_fit_warning %}
+> ⚠️ **主题匹配警告**
+{% for warning in topic_fit_warning %}
+> - {{ warning }}
+{% endfor %}
+
+{% endif %}
+{% if not content_extracted %}
+> ℹ️ 当前分析基于搜索摘要，尚未抓取正文。分析可信度：低。建议下一步：提取正文后重新生成索引。
+
+{% endif %}
 ## 必读资料
 
+{% if must_read %}
 {% for item in must_read %}
-- [[{{ item.filename }}|{{ item.title }}]] ({{ item.level }}) — {{ item.reason }}
+- [[{{ item.filename }}|{{ item.title }}]] ({{ item.level }})
+  - {{ item.reason }}
 {% endfor %}
+{% else %}
+（暂无 S/A 级必读资料）
+{% endif %}
 
 ## 图书资料
 
+{% if books %}
 {% for item in books %}
-- [[{{ item.filename }}|{{ item.title }}]] — {{ item.author }}
+### {{ item.title }}
+
+- 中文名：{{ item.title_zh if item.title_zh else "待翻译" }}
+- 作者：{{ item.author if item.author else "未知" }}
+- 类型：{{ item.book_type if item.book_type else "未知" }}
+- 相关性：{{ item.relevance_level if item.relevance_level else "待确认" }}
+- 为什么值得看：{{ item.why_relevant if item.why_relevant else "待分析" }}
+{% if item.likely_contains %}
+- 可能包含：
+{% for content in item.likely_contains %}
+  - {{ content }}
 {% endfor %}
+{% endif %}
+- 状态：{{ item.extraction_status }}
+
+{% endfor %}
+{% else %}
+（暂无相关图书资料）
+{% endif %}
 
 ## 访谈资料
 
+{% if interviews %}
 {% for item in interviews %}
-- [[{{ item.filename }}|{{ item.title }}]]
+- [[{{ item.filename }}|{{ item.title }}]] — {{ item.reason }}
 {% endfor %}
+{% else %}
+（暂无访谈资料）
+{% endif %}
 
 ## 八卦与旁证
 
+{% if gossip %}
 {% for item in gossip %}
-- [[{{ item.filename }}|{{ item.title }}]] ({{ item.level }})
+- [[{{ item.filename }}|{{ item.title }}]] ({{ item.level }}) — {{ item.reason }}
 {% endfor %}
+{% else %}
+（暂无八卦与旁证）
+{% endif %}
+
+## 关键人物
+
+{% if people %}
+{% for person in people %}
+- [[{{ person.name }}]] — {{ person.role }}
+{% endfor %}
+{% else %}
+（待提取正文后补充）
+{% endif %}
+
+## 关键地点
+
+{% if places %}
+{% for place in places %}
+- {{ place.name }} — {{ place.significance }}
+{% endfor %}
+{% else %}
+（待提取正文后补充）
+{% endif %}
 
 ## 重点名词
 
+{% if concepts %}
 {% for concept in concepts %}
 - [[{{ concept }}]]
 {% endfor %}
+{% else %}
+（待提取正文后补充）
+{% endif %}
 
-## 相关人物
+## 可用于播客的故事点
 
-{% for person in people %}
-- [[{{ person }}]]
+{% if story_points %}
+{% for point in story_points %}
+- {{ point.point }}（来源：{{ point.source }}）{% if not point.verified %} ⚠️ 未验证{% endif %}
+
 {% endfor %}
+{% else %}
+（待提取正文后补充）
+{% endif %}
 
 ## 时间线
 
-{{ timeline }}
+{% if timeline_events %}
+{% for event in timeline_events %}
+- **{{ event.date }}** — {{ event.event }}（{{ event.source }}）
+{% endfor %}
+{% else %}
+（待提取正文后补充）
+{% endif %}
 
 ## 待核验信息
 
-{% for item in unverified %}
-- {{ item }}
+{% if verification_warnings %}
+{% for item in verification_warnings %}
+- ⚠️ {{ item.claim }}（来源：{{ item.source }}，风险：{{ item.risk }}）
 {% endfor %}
+{% else %}
+（暂无待核验信息）
+{% endif %}
+
+## 被过滤噪音概览
+
+{% if filtered_noise_summary %}
+{% for noise in filtered_noise_summary %}
+- {{ noise }}
+{% endfor %}
+{% else %}
+（无明显噪音来源）
+{% endif %}
 
 ## 下一步深挖方向
 
+{% if next_steps %}
 {% for direction in next_steps %}
 - {{ direction }}
 {% endfor %}
+{% else %}
+- 提取已保存来源的正文
+- 交叉验证关键事实
+- 扩展搜索更多一手资料
+{% endif %}

@@ -25,7 +25,7 @@ router = APIRouter()
 
 @router.post("/tasks/{task_id}/export-index")
 async def export_index(task_id: str):
-    """生成 Obsidian 研究索引页。"""
+    """生成 Obsidian 研究资料包：index.md + source notes。"""
     # 从 DB 加载任务
     session = get_session()
     try:
@@ -71,8 +71,8 @@ async def export_index(task_id: str):
     if not sources:
         sources = _load_sources_from_db(task_id)
 
-    # 导出
-    docs_map: dict[str, ExtractedDocument] = {}
+    # 从 DB 加载已提取的文档
+    docs_map = _load_extracted_docs_from_db(task_id, sources)
 
     try:
         # 判断是否为报告导入任务
@@ -80,7 +80,61 @@ async def export_index(task_id: str):
         if task_type == ResearchTaskType.REPORT_INGESTION:
             path = _export_report_ingestion(task_id, task, sources, vault, session_factory=get_session)
         else:
-            path = export_research_index(task, sources, docs_map, vault_path=vault)
+            # 导出 source notes（已提取的来源）
+            source_note_count = 0
+            if docs_map:
+                from services.markdown_service import export_source_note
+                for source_id, doc in docs_map.items():
+                    if not doc.content:
+                        continue
+                    source_item = next((s for s in sources if s.id == source_id), None)
+                    if source_item is None:
+                        continue
+                    try:
+                        export_source_note(
+                            source_item=source_item,
+                            extracted=doc,
+                            topic=task.topic,
+                            vault_path=vault,
+                        )
+                        source_note_count += 1
+                    except Exception as e:
+                        logger.warning("export_source_note_failed source_id=%s error=%s", source_id, str(e)[:100])
+
+            # 生成 index synthesis（如果有提取内容）
+            synthesis = None
+            if docs_map:
+                try:
+                    from services.markdown_service import generate_index_synthesis
+                    synthesis = await generate_index_synthesis(
+                        topic=task.topic,
+                        mode=task.mode.value if hasattr(task.mode, 'value') else str(task.mode),
+                        sources=sources,
+                        extracted_docs=docs_map,
+                    )
+                except Exception as e:
+                    logger.warning("index_synthesis_failed task_id=%s error=%s", task_id, str(e)[:100])
+
+            # 导出 index.md
+            path = export_research_index(
+                task, sources, docs_map,
+                vault_path=vault,
+                synthesis=synthesis,
+            )
+
+            # 导出 cards/*.md
+            if docs_map:
+                from services.card_export_service import export_research_cards
+                try:
+                    export_research_cards(
+                        task=task,
+                        sources=sources,
+                        extracted_docs=docs_map,
+                        vault_path=vault,
+                        synthesis=synthesis,
+                    )
+                except Exception as e:
+                    logger.warning("card_export_failed task_id=%s error=%s", task_id, str(e)[:100])
     except ResearchError as e:
         raise HTTPException(status_code=400, detail=e.message)
 
@@ -98,9 +152,53 @@ async def export_index(task_id: str):
         "status": "exported",
         "path": str(path),
         "index_path": str(path),
-        "message": f"研究索引已导出到: {path}",
+        "message": f"研究资料包已导出到: {path}",
         "source_count": len(sources),
+        "extracted_count": len(docs_map),
+        "source_note_count": source_note_count if task_type != ResearchTaskType.REPORT_INGESTION else 0,
     }
+
+
+def _load_extracted_docs_from_db(task_id: str, sources: list) -> dict[str, ExtractedDocument]:
+    """从 DB 加载已提取的文档，返回 {source_id: ExtractedDocument} 映射。"""
+    from db.repositories import ExtractedRepository
+
+    docs_map: dict[str, ExtractedDocument] = {}
+    session = get_session()
+    try:
+        repo = ExtractedRepository(session)
+        for source in sources:
+            row = repo.get_by_source(source.id)
+            if row and row.content:
+                docs_map[source.id] = ExtractedDocument(
+                    id=row.id,
+                    source_item_id=row.source_item_id,
+                    title=row.title,
+                    author=row.author,
+                    content=row.content,
+                    summary=row.summary or "",
+                    key_quotes=_parse_json_list(row.key_quotes),
+                    people=_parse_json_list(row.people),
+                    places=_parse_json_list(row.places),
+                    organizations=_parse_json_list(row.organizations),
+                    concepts=_parse_json_list(row.concepts),
+                    events=_parse_json_list(row.events),
+                )
+    finally:
+        session.close()
+
+    return docs_map
+
+
+def _parse_json_list(value: str | None) -> list[str]:
+    """解析 JSON 列表字段。"""
+    if not value:
+        return []
+    try:
+        result = json.loads(value)
+        return result if isinstance(result, list) else []
+    except (json.JSONDecodeError, TypeError):
+        return []
 
 
 def _export_report_ingestion(task_id, task, sources, vault, session_factory):

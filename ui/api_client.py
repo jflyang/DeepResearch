@@ -90,6 +90,12 @@ class APIClient:
         r.raise_for_status()
         return r.json()
 
+    def get_extracted_content(self, source_id: str) -> dict:
+        """获取已提取的正文内容。"""
+        r = httpx.get(self._url(f"/sources/{source_id}/content"), timeout=10.0)
+        r.raise_for_status()
+        return r.json()
+
     def export_index(self, task_id: str) -> dict:
         r = httpx.post(self._url(f"/research/tasks/{task_id}/export-index"), timeout=30.0)
         r.raise_for_status()
@@ -373,5 +379,76 @@ class APIClient:
         """重新发起研究任务。"""
         payload = {"clone": clone}
         r = httpx.post(self._url(f"/research/tasks/{task_id}/rerun"), json=payload, timeout=10.0)
+        r.raise_for_status()
+        return r.json()
+
+    # === Task Queue ===
+
+    def get_queue_status(self) -> dict:
+        """获取任务队列状态。"""
+        r = httpx.get(self._url("/research/tasks/queue"), timeout=10.0)
+        r.raise_for_status()
+        return r.json()
+
+    def enqueue_tasks(self, task_ids: list[str], priority: int = 100) -> dict:
+        """将任务加入队列。"""
+        r = httpx.post(
+            self._url("/research/tasks/enqueue"),
+            json={"task_ids": task_ids, "priority": priority},
+            timeout=10.0,
+        )
+        r.raise_for_status()
+        return r.json()
+
+    def batch_create_and_enqueue(
+        self,
+        topics: list[str],
+        mode: str = "auto",
+        depth: str = "standard",
+        include_gossip: bool = False,
+        include_books: bool = True,
+        include_video: bool = False,
+        obsidian_path: str = "",
+        priority: int = 100,
+    ) -> dict:
+        """批量创建研究任务并加入队列。"""
+        r = httpx.post(
+            self._url("/research/tasks/batch-create"),
+            json={
+                "topics": topics,
+                "mode": mode,
+                "depth": depth,
+                "include_gossip": include_gossip,
+                "include_books": include_books,
+                "include_video": include_video,
+                "obsidian_path": obsidian_path,
+                "priority": priority,
+            },
+            timeout=30.0,
+        )
+        r.raise_for_status()
+        return r.json()
+
+    def cancel_queued_task(self, task_id: str) -> dict:
+        """取消排队中的任务。"""
+        r = httpx.post(self._url(f"/research/tasks/{task_id}/cancel"), timeout=10.0)
+        r.raise_for_status()
+        return r.json()
+
+    def retry_queued_task(self, task_id: str) -> dict:
+        """重试失败的队列任务。"""
+        r = httpx.post(self._url(f"/research/tasks/{task_id}/retry"), timeout=10.0)
+        r.raise_for_status()
+        return r.json()
+
+    def start_queue_worker(self) -> dict:
+        """启动队列 worker。"""
+        r = httpx.post(self._url("/research/tasks/worker/start"), timeout=10.0)
+        r.raise_for_status()
+        return r.json()
+
+    def stop_queue_worker(self) -> dict:
+        """停止队列 worker。"""
+        r = httpx.post(self._url("/research/tasks/worker/stop"), timeout=10.0)
         r.raise_for_status()
         return r.json()

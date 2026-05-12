@@ -3,6 +3,7 @@
 import pytest
 from unittest.mock import AsyncMock, MagicMock
 
+from app.ai.schemas import FinalIndexSynthesisOutput, SynthesisKeyPerson
 from models.enums import SourceLevel, SourceType
 from models.schemas import SourceItem
 
@@ -33,11 +34,14 @@ class TestFinalIndexSynthesis:
 
     @pytest.mark.asyncio
     async def test_generates_with_gateway(self, sample_sources):
-        """有 AI Gateway 时应调用 LLM 生成概览。"""
+        """有 AI Gateway 时应调用 LLM 生成结构化输出。"""
         from services.markdown_service import generate_index_synthesis
 
         mock_gateway = MagicMock()
-        mock_gateway.run_text = AsyncMock(return_value="## 研究概览\n\n这是 LLM 生成的研究概览。")
+        mock_gateway.run_json = AsyncMock(return_value=FinalIndexSynthesisOutput(
+            overview="这是 LLM 生成的研究概览。",
+            key_people=[SynthesisKeyPerson(name="Test Person", role="主体", importance="high")],
+        ))
 
         result = await generate_index_synthesis(
             topic="Test Topic",
@@ -46,12 +50,13 @@ class TestFinalIndexSynthesis:
             ai_gateway=mock_gateway,
         )
 
-        assert "研究概览" in result
-        mock_gateway.run_text.assert_called_once()
+        assert isinstance(result, FinalIndexSynthesisOutput)
+        assert "研究概览" in result.overview
+        mock_gateway.run_json.assert_called_once()
 
     @pytest.mark.asyncio
     async def test_fallback_without_gateway(self, sample_sources):
-        """没有 AI Gateway 时返回规则生成的概览。"""
+        """没有 AI Gateway 时返回规则生成的结果。"""
         from services.markdown_service import generate_index_synthesis
 
         result = await generate_index_synthesis(
@@ -61,17 +66,17 @@ class TestFinalIndexSynthesis:
             ai_gateway=None,
         )
 
-        assert "研究概览" in result
-        assert "Test Topic" in result
-        assert "3" in result  # total sources
+        assert isinstance(result, FinalIndexSynthesisOutput)
+        assert "Test Topic" in result.overview
+        assert "3" in result.overview  # total sources
 
     @pytest.mark.asyncio
     async def test_fallback_on_llm_failure(self, sample_sources):
-        """LLM 失败时返回规则生成的概览。"""
+        """LLM 失败时返回规则生成的结果。"""
         from services.markdown_service import generate_index_synthesis
 
         mock_gateway = MagicMock()
-        mock_gateway.run_text = AsyncMock(side_effect=Exception("API error"))
+        mock_gateway.run_json = AsyncMock(side_effect=Exception("API error"))
 
         result = await generate_index_synthesis(
             topic="Test Topic",
@@ -81,16 +86,17 @@ class TestFinalIndexSynthesis:
         )
 
         # 应返回 fallback
-        assert "研究概览" in result
-        assert "Test Topic" in result
+        assert isinstance(result, FinalIndexSynthesisOutput)
+        assert "Test Topic" in result.overview
 
     @pytest.mark.asyncio
     async def test_rule_based_includes_stats(self, sample_sources):
-        """规则生成的概览应包含统计信息。"""
+        """规则生成的结果应包含统计信息。"""
         from services.markdown_service import _rule_based_index_synthesis
 
         result = _rule_based_index_synthesis("Test Topic", "person", sample_sources)
 
-        assert "Test Topic" in result
-        assert "3" in result  # total
-        assert "2" in result  # high quality (S + A)
+        assert isinstance(result, FinalIndexSynthesisOutput)
+        assert "Test Topic" in result.overview
+        assert "3" in result.overview  # total
+        assert "2" in result.overview  # high quality (S + A)

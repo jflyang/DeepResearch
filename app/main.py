@@ -8,6 +8,7 @@ from fastapi.responses import JSONResponse
 from api.routes_export import router as export_router
 from api.routes_research import router as research_router
 from api.routes_sources import router as sources_router
+from api.routes_tasks import router as tasks_router
 from app.api.routes_report_ingestion import router as report_ingestion_router
 from app.api.routes_settings import router as settings_router
 from core.errors import ResearchError
@@ -77,6 +78,7 @@ async def generic_error_handler(request: Request, exc: Exception):
 
 # === 路由注册 ===
 
+app.include_router(tasks_router, prefix="/research", tags=["task-queue"])
 app.include_router(research_router, prefix="/research", tags=["research"])
 app.include_router(sources_router, prefix="/sources", tags=["sources"])
 app.include_router(export_router, prefix="/research", tags=["export"])

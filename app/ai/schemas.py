@@ -226,6 +226,85 @@ class ReportReferenceExtractionOutput(BaseModel):
     verification_targets: list[ReportClaim] = Field(default_factory=list)
 
 
+# === Final Index Synthesis Schema ===
+
+
+class SynthesisBookSource(BaseModel):
+    """综合分析中的图书来源。"""
+
+    title: str = ""
+    title_zh: str = ""
+    author: str = ""
+    book_type: str = ""
+    relevance: str = "medium"
+    why_read: str = ""
+    likely_contains: list[str] = Field(default_factory=list)
+
+
+class SynthesisKeyPerson(BaseModel):
+    """综合分析中的关键人物。"""
+
+    name: str = ""
+    role: str = ""
+    importance: str = "medium"
+
+
+class SynthesisKeyPlace(BaseModel):
+    """综合分析中的关键地点。"""
+
+    name: str = ""
+    significance: str = ""
+
+
+class SynthesisTimelineEvent(BaseModel):
+    """综合分析中的时间线事件。"""
+
+    date: str = ""
+    event: str = ""
+    source: str = ""
+
+
+class SynthesisStoryPoint(BaseModel):
+    """综合分析中的故事点。"""
+
+    point: str = ""
+    source: str = ""
+    verified: bool = False
+
+
+class SynthesisVerificationWarning(BaseModel):
+    """综合分析中的待核验信息。"""
+
+    claim: str = ""
+    source: str = ""
+    risk: str = ""
+
+
+class SynthesisMustReadSource(BaseModel):
+    """综合分析中的必读来源。"""
+
+    title: str = ""
+    reason: str = ""
+    expected_value: str = ""
+
+
+class FinalIndexSynthesisOutput(BaseModel):
+    """最终索引综合分析输出。"""
+
+    overview: str = Field(default="", max_length=2000)
+    topic_fit_warning: list[str] = Field(default_factory=list)
+    must_read_sources: list[SynthesisMustReadSource] = Field(default_factory=list)
+    book_sources: list[SynthesisBookSource] = Field(default_factory=list)
+    key_people: list[SynthesisKeyPerson] = Field(default_factory=list)
+    key_places: list[SynthesisKeyPlace] = Field(default_factory=list)
+    key_concepts: list[str] = Field(default_factory=list)
+    timeline_events: list[SynthesisTimelineEvent] = Field(default_factory=list)
+    story_points: list[SynthesisStoryPoint] = Field(default_factory=list)
+    verification_warnings: list[SynthesisVerificationWarning] = Field(default_factory=list)
+    filtered_noise_summary: list[str] = Field(default_factory=list)
+    suggested_next_steps: list[str] = Field(default_factory=list)
+
+
 class PrioritizedReference(BaseModel):
     """优先级排序后的引用。"""
 

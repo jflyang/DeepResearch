@@ -1,0 +1,37 @@
+# 研究策略配置 - 控制自动抓取、分析、导出行为
+
+auto_fetch:
+  enabled: true
+  min_source_level: "A"
+  include_levels:
+    - S
+    - A
+  max_sources_per_task: 20
+  skip_source_types:
+    - reference
+    - low_quality
+  skip_categories:
+    - low_quality
+    - gossip
+  skip_domains:
+    - wikipedia.org
+    - en.wikipedia.org
+    - zh.wikipedia.org
+  require_downloadable: false
+  retry_failed: false
+  min_relevance_score: 0.3
+  timeout_per_source_seconds: 30
+
+auto_analyze:
+  enabled: true
+  use_llm: true
+  output_language: zh
+  extract_entities: true
+  extract_story_points: true
+
+auto_export:
+  enabled: true
+  export_index: true
+  export_source_notes: true
+  export_imported_report: true
+  export_only_fetched_sources: false

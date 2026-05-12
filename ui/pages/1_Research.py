@@ -144,51 +144,114 @@ STEP_LABELS = {
 running_task_id = st.session_state.get("running_task_id")
 
 if not running_task_id:
-    with st.form("research_form"):
-        topic = st.text_input("研究主题", placeholder="例如：库克的童年故事、黄仁勋早期创业、OpenAI 宫斗")
+    # 模式选择：单个 vs 批量
+    input_mode = st.radio("输入模式", ["单个主题", "批量主题"], horizontal=True, label_visibility="collapsed")
 
-        col1, col2 = st.columns(2)
-        with col1:
-            mode = st.selectbox("研究模式", ["auto", "person", "company", "event", "concept"], index=0)
-            depth = st.selectbox("搜索深度", ["shallow", "standard", "deep"], index=1)
+    if input_mode == "单个主题":
+        with st.form("research_form"):
+            topic = st.text_input("研究主题", placeholder="例如：库克的童年故事、黄仁勋早期创业、OpenAI 宫斗")
 
-        with col2:
-            include_gossip = st.checkbox("包含八卦线索", value=False)
-            include_books = st.checkbox("包含图书资料", value=True)
-            include_video = st.checkbox("包含视频资料", value=False)
+            col1, col2 = st.columns(2)
+            with col1:
+                mode = st.selectbox("研究模式", ["auto", "person", "company", "event", "concept"], index=0)
+                depth = st.selectbox("搜索深度", ["shallow", "standard", "deep"], index=1)
 
-        submitted = st.form_submit_button("🚀 开始研究", type="primary")
+            with col2:
+                include_gossip = st.checkbox("包含八卦线索", value=False)
+                include_books = st.checkbox("包含图书资料", value=True)
+                include_video = st.checkbox("包含视频资料", value=False)
 
-    # === 执行逻辑 ===
+            # 高级选项：自动抓取与导出
+            with st.expander("⚙️ 高级选项：自动抓取与导出", expanded=False):
+                auto_col1, auto_col2 = st.columns(2)
+                with auto_col1:
+                    auto_fetch = st.checkbox("自动抓取 A/S 级来源", value=True, help="研究完成后自动抓取高可信来源的正文")
+                    auto_analyze = st.checkbox("自动分析抓取正文", value=True, help="使用 LLM 生成中文摘要、关键事实、故事点")
+                with auto_col2:
+                    auto_export = st.checkbox("完成后自动导出到 Obsidian", value=vault_usable, disabled=not vault_usable, help="自动生成 index.md 和 source notes")
+                    if not vault_usable:
+                        st.caption("⚠️ 请先到 Settings 配置 Vault 路径")
 
-    if submitted:
-        if not topic.strip():
-            st.error("请输入研究主题")
-        else:
-            # 创建任务
-            try:
-                result = client.create_task({
-                    "topic": topic.strip(),
-                    "mode": mode,
-                    "depth": depth,
-                    "include_gossip": include_gossip,
-                    "include_books": include_books,
-                    "include_video": include_video,
-                    "obsidian_path": obsidian_path,
-                })
-                task_id = result["task_id"]
-            except Exception as e:
-                st.error(f"创建任务失败：{e}")
-                st.stop()
+            submitted = st.form_submit_button("🚀 开始研究", type="primary")
 
-            # 启动研究（后台执行）
-            try:
-                run_result = client.run_research(task_id)
-                st.session_state["running_task_id"] = task_id
-                st.rerun()
-            except Exception as e:
-                st.error(f"启动研究失败：{e}")
-                st.stop()
+        # === 单个任务执行逻辑 ===
+
+        if submitted:
+            if not topic.strip():
+                st.error("请输入研究主题")
+            else:
+                try:
+                    result = client.create_task({
+                        "topic": topic.strip(),
+                        "mode": mode,
+                        "depth": depth,
+                        "include_gossip": include_gossip,
+                        "include_books": include_books,
+                        "include_video": include_video,
+                        "obsidian_path": obsidian_path,
+                    })
+                    task_id = result["task_id"]
+                except Exception as e:
+                    st.error(f"创建任务失败：{e}")
+                    st.stop()
+
+                try:
+                    run_result = client.run_research(task_id)
+                    st.session_state["running_task_id"] = task_id
+                    st.rerun()
+                except Exception as e:
+                    st.error(f"启动研究失败：{e}")
+                    st.stop()
+
+    else:
+        # === 批量主题模式 ===
+        with st.form("batch_research_form"):
+            topics_text = st.text_area(
+                "批量研究主题（每行一个）",
+                placeholder="OpenAI 新模型\n黄仁勋 Computex 演讲\nTesla Robotaxi\nTim Cook 童年故事",
+                height=200,
+            )
+
+            col1, col2 = st.columns(2)
+            with col1:
+                batch_mode = st.selectbox("研究模式", ["auto", "person", "company", "event", "concept"], index=0, key="batch_mode")
+                batch_depth = st.selectbox("搜索深度", ["shallow", "standard", "deep"], index=1, key="batch_depth")
+
+            with col2:
+                batch_include_gossip = st.checkbox("包含八卦线索", value=False, key="batch_gossip")
+                batch_include_books = st.checkbox("包含图书资料", value=True, key="batch_books")
+                batch_include_video = st.checkbox("包含视频资料", value=False, key="batch_video")
+
+            batch_submitted = st.form_submit_button("📋 加入任务队列", type="primary")
+
+        if batch_submitted:
+            topics = [t.strip() for t in topics_text.strip().split("\n") if t.strip()]
+            if not topics:
+                st.error("请输入至少一个研究主题")
+            else:
+                try:
+                    result = client.batch_create_and_enqueue(
+                        topics=topics,
+                        mode=batch_mode,
+                        depth=batch_depth,
+                        include_gossip=batch_include_gossip,
+                        include_books=batch_include_books,
+                        include_video=batch_include_video,
+                        obsidian_path=obsidian_path,
+                    )
+                    st.success(f"✅ 已创建 {result['created']} 个任务并加入队列")
+                    st.info("系统将逐个执行队列中的任务。可在下方查看队列状态。")
+                except Exception as e:
+                    st.error(f"批量创建失败：{e}")
+
+    # === 任务队列面板 ===
+    try:
+        queue_data = client.get_queue_status()
+        if queue_data.get("queued") or queue_data.get("running") or queue_data.get("failed_recent"):
+            from ui.components.task_queue_panel import render_queue_panel
+            render_queue_panel(st, queue_data, api_client=client)
+    except Exception:
+        pass  # 队列面板加载失败不影响页面
 
 # === 实时研究流程面板 ===
 

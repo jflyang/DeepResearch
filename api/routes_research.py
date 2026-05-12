@@ -173,6 +173,9 @@ async def _run_research_background(task_id: str, task):
         finally:
             session.close()
 
+        # === Auto Fetch & Export ===
+        await _run_auto_fetch_export(task_id, task, source_items, ai_gateway)
+
     except Exception as e:
         _logger.error("background_research_failed task_id=%s error=%s", task_id, str(e))
         # 标记任务失败
@@ -190,6 +193,40 @@ async def _run_research_background(task_id: str, task):
             task_id, TraceStep.TASK_FAILED, TracePhase.PROCESSING,
             message=f"Research failed: {str(e)[:200]}",
             error_message=str(e)[:500],
+        )
+
+
+async def _run_auto_fetch_export(task_id: str, task, source_items, ai_gateway):
+    """执行自动抓取与导出（不影响主任务状态）。"""
+    _logger = logging.getLogger(__name__)
+
+    try:
+        from services.auto_fetch_service import AutoFetchExportService
+
+        auto_service = AutoFetchExportService(ai_gateway=ai_gateway)
+        result = await auto_service.run(task=task, sources=source_items)
+
+        _logger.info(
+            "auto_fetch_export_completed task_id=%s fetched=%d failed=%d exported=%s",
+            task_id, result.fetched_count, result.failed_count, result.exported,
+        )
+
+        # 更新 DB 中的 source download_status
+        if result.fetched_count > 0:
+            session = get_session()
+            try:
+                src_repo = SourceRepository(session)
+                for source_id, doc in result.extracted_docs.items():
+                    if doc.content:
+                        src_repo.update_download_status(source_id, "extracted")
+            finally:
+                session.close()
+
+    except Exception as e:
+        # 自动抓取失败不影响主任务
+        _logger.warning(
+            "auto_fetch_export_failed task_id=%s error=%s",
+            task_id, str(e)[:200],
         )
 
 

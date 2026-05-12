@@ -300,6 +300,23 @@ def score_candidate(
         authority = min(authority, 0.2)
         originality = min(originality, 0.2)
 
+    # 图书相关性过滤：对 book 类型来源进行规则检查
+    if candidate.source_type == SourceType.BOOK and topic:
+        from services.book_relevance_service import rule_based_book_relevance
+        book_check = rule_based_book_relevance(
+            topic=topic,
+            canonical_topic=topic,
+            main_entity=topic,
+            book_title=candidate.title,
+            authors="",
+            snippet=candidate.snippet,
+        )
+        if not book_check.is_relevant:
+            # 不相关图书：大幅降低分数
+            relevance = min(relevance, 0.1)
+            authority = min(authority, 0.2)
+            is_low_qual = True
+
     category = _classify_category(candidate, domain_group, gossip, is_low_qual)
 
     # 计算 final score 用于确定 level

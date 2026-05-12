@@ -26,6 +26,9 @@ dev = [
     "ruff>=0.2.0",
     "httpx[http2]",
 ]
+browser = [
+    "playwright>=1.40.0",
+]
 
 [build-system]
 requires = ["setuptools>=68.0"]

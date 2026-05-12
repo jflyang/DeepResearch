@@ -4,6 +4,8 @@ __pycache__/
 *.db
 data/output/
 data/*.db
+data/imported_reports/
+data/task_queue.json
 .ruff_cache/
 .pytest_cache/
 dist/
