@@ -21,6 +21,12 @@ _registry = ServiceRegistry()
 _llm_router = LLMRouter()
 
 
+def _fresh_settings():
+    """获取最新配置（清除缓存后重新加载）。"""
+    reset_settings()
+    return get_settings()
+
+
 # === Request / Response schemas ===
 
 
@@ -96,7 +102,7 @@ class CloudLLMSaveRequest(BaseModel):
     enabled: bool = True
     provider: str
     base_url: str
-    api_key: str
+    api_key: str | None = None  # None or empty = keep existing
     default_model: str
     timeout_seconds: int = 120
 
@@ -120,15 +126,21 @@ class ActiveProviderResponse(BaseModel):
 
 @router.get("/services")
 async def list_services() -> list[dict[str, Any]]:
-    """返回所有服务配置状态。"""
+    """返回所有服务配置状态（每次重新读取 runtime_settings.json）。"""
     services = _registry.list_services()
-    return [s.model_dump() for s in services]
+    result = []
+    for s in services:
+        d = s.model_dump()
+        # 安全：不返回 API key 明文
+        d.pop("api_key", None)
+        result.append(d)
+    return result
 
 
 @router.get("/llm")
 async def get_llm_config() -> dict[str, Any]:
     """返回 LLM provider 配置状态。"""
-    settings = get_settings()
+    settings = _fresh_settings()
     return {
         "provider": "ollama_lan",
         "enabled": settings.enable_llm,
@@ -145,8 +157,8 @@ async def get_llm_config() -> dict[str, Any]:
 
 @router.get("/llm/ollama")
 async def get_ollama_config() -> dict[str, Any]:
-    """返回 Ollama 详细配置。"""
-    settings = get_settings()
+    """返回 Ollama 详细配置（每次从 runtime_settings.json 读取最新值）。"""
+    settings = _fresh_settings()
     return {
         "enabled": settings.enable_llm,
         "configured": settings.ollama_configured,
@@ -197,8 +209,8 @@ async def save_ollama_config(body: OllamaSaveRequest) -> OllamaSaveResponse:
 
 @router.get("/llm/cloud")
 async def get_cloud_llm_config() -> dict[str, Any]:
-    """返回云端 LLM 配置（不返回 API key 明文）。"""
-    settings = get_settings()
+    """返回云端 LLM 配置（不返回 API key 明文，每次读取最新值）。"""
+    settings = _fresh_settings()
     provider = settings.cloud_llm_provider
 
     # 根据 provider 确定具体配置
@@ -264,13 +276,32 @@ async def list_cloud_llm_models(body: CloudLLMModelsRequest) -> CloudLLMModelsRe
 
 @router.post("/llm/cloud/save")
 async def save_cloud_llm_config(body: CloudLLMSaveRequest) -> CloudLLMSaveResponse:
-    """保存云端 LLM 配置到 runtime_settings.json。"""
+    """保存云端 LLM 配置到 runtime_settings.json。
+
+    API Key 规则：
+    - None 或空字符串：保留已有 key
+    - "__CLEAR__"：清空 key
+    - 其他字符串：覆盖旧 key
+    """
     try:
+        # 读取现有配置以保留 API key
+        runtime = _load_runtime_settings()
+        existing_cloud = runtime.get("cloud_llm", {})
+
+        # 确定最终 API key
+        if body.api_key == "__CLEAR__":
+            final_api_key = ""
+        elif body.api_key:
+            final_api_key = body.api_key
+        else:
+            # 保留已有 key
+            final_api_key = existing_cloud.get("api_key", "")
+
         save_runtime_settings("cloud_llm", {
             "enabled": body.enabled,
             "provider": body.provider,
             "base_url": body.base_url,
-            "api_key": body.api_key,
+            "api_key": final_api_key,
             "default_model": body.default_model,
             "timeout_seconds": body.timeout_seconds,
         })
@@ -394,8 +425,8 @@ class ObsidianTestResponse(BaseModel):
 
 @router.get("/search")
 async def get_search_config() -> dict[str, Any]:
-    """返回搜索 provider 配置状态（不返回 API key 明文）。"""
-    settings = get_settings()
+    """返回搜索 provider 配置状态（不返回 API key 明文，每次读取最新值）。"""
+    settings = _fresh_settings()
     return {
         "tavily": {
             "enabled": settings.enable_tavily,
@@ -418,7 +449,13 @@ async def get_search_config() -> dict[str, Any]:
 
 @router.post("/search/save")
 async def save_search_config(body: SearchSaveRequest) -> SearchSaveResponse:
-    """保存搜索 provider 配置到 runtime_settings.json。"""
+    """保存搜索 provider 配置到 runtime_settings.json。
+
+    API Key 规则：
+    - None 或空字符串：保留已有 key
+    - "__CLEAR__"：清空 key
+    - 其他字符串：覆盖旧 key
+    """
     try:
         runtime = _load_runtime_settings()
         current_search = runtime.get("search", {})
@@ -463,8 +500,8 @@ async def save_search_config(body: SearchSaveRequest) -> SearchSaveResponse:
 
 @router.get("/obsidian")
 async def get_obsidian_config() -> dict[str, Any]:
-    """返回 Obsidian Vault 配置状态。"""
-    settings = get_settings()
+    """返回 Obsidian Vault 配置状态（每次读取最新值）。"""
+    settings = _fresh_settings()
     vault_path = settings.obsidian_vault_path
     configured = bool(vault_path)
     exists = False

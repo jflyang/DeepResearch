@@ -1,4 +1,9 @@
-"""设置页面 - 展示 LLM 与 API 服务配置状态。"""
+"""设置页面 - 展示 LLM 与 API 服务配置状态。
+
+所有配置从后端 API 读取（后端从 runtime_settings.json 加载）。
+保存后 st.rerun() 确保页面重新从 API 获取最新状态。
+不依赖 st.session_state 保存关键配置。
+"""
 
 import streamlit as st
 from ui.api_client import APIClient
@@ -36,13 +41,15 @@ if ollama_config:
     else:
         st.markdown("⚠️ Ollama 未配置")
 
-with st.form("ollama_config_form"):
-    current_url = ollama_config.get("base_url", "") if ollama_config else ""
-    current_timeout = ollama_config.get("timeout_seconds", 120) if ollama_config else 120
+# 从 API 读取的值作为表单默认值（非 session_state）
+_ollama_base_url = ollama_config.get("base_url", "") if ollama_config else ""
+_ollama_timeout = ollama_config.get("timeout_seconds", 120) if ollama_config else 120
+_ollama_model = ollama_config.get("default_model", "") if ollama_config else ""
 
+with st.form("ollama_config_form"):
     ollama_url = st.text_input(
         "Ollama 服务器地址",
-        value=current_url,
+        value=_ollama_base_url,
         placeholder="http://192.168.1.50:11434",
         help="局域网 Ollama 服务的完整地址",
     )
@@ -50,17 +57,18 @@ with st.form("ollama_config_form"):
         "超时秒数",
         min_value=10,
         max_value=600,
-        value=current_timeout,
+        value=_ollama_timeout,
         step=10,
     )
     form_submitted = st.form_submit_button("应用地址设置")
 
 if form_submitted and ollama_url:
-    st.session_state["ollama_url"] = ollama_url
-    st.session_state["ollama_timeout"] = ollama_timeout
+    st.session_state["_ollama_url_pending"] = ollama_url
+    st.session_state["_ollama_timeout_pending"] = ollama_timeout
 
-active_url = st.session_state.get("ollama_url", current_url)
-active_timeout = st.session_state.get("ollama_timeout", current_timeout)
+# 使用 pending 值（如果用户刚点了应用）或 API 返回值
+active_url = st.session_state.get("_ollama_url_pending", _ollama_base_url)
+active_timeout = st.session_state.get("_ollama_timeout_pending", _ollama_timeout)
 
 if active_url:
     col1, col2 = st.columns(2)
@@ -90,10 +98,9 @@ if active_url:
     models = st.session_state.get("ollama_models", [])
     if models:
         model_names = [m["name"] for m in models]
-        current_model = ollama_config.get("default_model", "") if ollama_config else ""
         default_idx = 0
-        if current_model in model_names:
-            default_idx = model_names.index(current_model)
+        if _ollama_model in model_names:
+            default_idx = model_names.index(_ollama_model)
 
         selected_model = st.selectbox(
             "默认模型（Ollama）",
@@ -118,6 +125,11 @@ if active_url:
                     )
                     if result.get("success"):
                         st.success("✅ Ollama 配置已保存！")
+                        # 清除 pending 状态
+                        st.session_state.pop("_ollama_url_pending", None)
+                        st.session_state.pop("_ollama_timeout_pending", None)
+                        st.session_state.pop("ollama_models", None)
+                        st.rerun()
                     else:
                         st.error(f"保存失败：{result.get('message', '未知错误')}")
                 except Exception as e:
@@ -147,7 +159,7 @@ if cloud_config:
     else:
         st.markdown("❌ 云端 LLM 未启用")
 
-# 云端 LLM 配置表单
+# 云端 LLM 配置表单 - 从 API 读取默认值
 PROVIDER_OPTIONS = ["deepseek", "openai", "openai_compatible"]
 PROVIDER_LABELS = {"deepseek": "DeepSeek", "openai": "OpenAI", "openai_compatible": "OpenAI-Compatible"}
 DEFAULT_URLS = {
@@ -156,14 +168,20 @@ DEFAULT_URLS = {
     "openai_compatible": "",
 }
 
+_cloud_provider = cloud_config.get("provider", "deepseek")
+_cloud_base_url = cloud_config.get("base_url", DEFAULT_URLS.get(_cloud_provider, ""))
+_cloud_model = cloud_config.get("default_model", "")
+_cloud_timeout = cloud_config.get("timeout_seconds", 120)
+_cloud_enabled = cloud_config.get("enabled", False)
+_cloud_api_key_configured = cloud_config.get("api_key_configured", False)
+
 with st.form("cloud_llm_form"):
     cloud_enabled = st.checkbox(
         "启用云端 LLM",
-        value=cloud_config.get("enabled", False),
+        value=_cloud_enabled,
     )
 
-    current_provider = cloud_config.get("provider", "deepseek")
-    provider_idx = PROVIDER_OPTIONS.index(current_provider) if current_provider in PROVIDER_OPTIONS else 0
+    provider_idx = PROVIDER_OPTIONS.index(_cloud_provider) if _cloud_provider in PROVIDER_OPTIONS else 0
 
     cloud_provider = st.selectbox(
         "Provider",
@@ -175,21 +193,21 @@ with st.form("cloud_llm_form"):
     cloud_api_key = st.text_input(
         "API Key",
         type="password",
-        placeholder="sk-...",
-        help="API Key 仅保存在本地 runtime_settings.json，不会上传或显示明文",
+        placeholder="已配置，如需修改请重新输入" if _cloud_api_key_configured else "sk-...",
+        help="留空保留已有 Key。API Key 仅保存在本地 runtime_settings.json",
     )
-    if cloud_config.get("api_key_configured"):
-        st.caption("✅ API Key 已配置（如需更换请重新输入）")
+    if _cloud_api_key_configured:
+        st.caption("✅ API Key 已配置（留空保留，重新输入可更换）")
 
     cloud_base_url = st.text_input(
         "Base URL",
-        value=cloud_config.get("base_url", DEFAULT_URLS.get(current_provider, "")),
+        value=_cloud_base_url,
         placeholder="https://api.deepseek.com",
     )
 
     cloud_model = st.text_input(
         "默认模型",
-        value=cloud_config.get("default_model", ""),
+        value=_cloud_model,
         placeholder="deepseek-v4-flash / gpt-4.1-mini",
     )
 
@@ -197,64 +215,77 @@ with st.form("cloud_llm_form"):
         "超时秒数",
         min_value=10,
         max_value=600,
-        value=cloud_config.get("timeout_seconds", 120),
+        value=_cloud_timeout,
         step=10,
-        key="cloud_timeout",
+        key="cloud_timeout_input",
     )
 
     cloud_form_submitted = st.form_submit_button("应用云端设置")
 
 if cloud_form_submitted:
-    st.session_state["cloud_provider"] = cloud_provider
-    st.session_state["cloud_base_url"] = cloud_base_url
-    st.session_state["cloud_api_key"] = cloud_api_key
-    st.session_state["cloud_model"] = cloud_model
-    # cloud_timeout is managed by the widget key, no need to set manually
-    st.session_state["cloud_enabled"] = cloud_enabled
+    # 保存到 session_state 用于测试/获取模型列表
+    st.session_state["_cloud_pending"] = {
+        "provider": cloud_provider,
+        "base_url": cloud_base_url,
+        "api_key": cloud_api_key,
+        "model": cloud_model,
+        "timeout": cloud_timeout,
+        "enabled": cloud_enabled,
+    }
 
-# 操作按钮
-active_cloud_provider = st.session_state.get("cloud_provider", cloud_config.get("provider", "deepseek"))
-active_cloud_url = st.session_state.get("cloud_base_url", cloud_config.get("base_url", ""))
-active_cloud_key = st.session_state.get("cloud_api_key", "")
-active_cloud_model = st.session_state.get("cloud_model", cloud_config.get("default_model", ""))
-active_cloud_timeout = st.session_state.get("cloud_timeout", cloud_config.get("timeout_seconds", 120))
-active_cloud_enabled = st.session_state.get("cloud_enabled", cloud_config.get("enabled", False))
+# 获取 pending 或 API 值
+_pending_cloud = st.session_state.get("_cloud_pending", {})
+active_cloud_provider = _pending_cloud.get("provider", _cloud_provider)
+active_cloud_url = _pending_cloud.get("base_url", _cloud_base_url)
+active_cloud_key = _pending_cloud.get("api_key", "")
+active_cloud_model = _pending_cloud.get("model", _cloud_model)
+active_cloud_timeout = _pending_cloud.get("timeout", _cloud_timeout)
+active_cloud_enabled = _pending_cloud.get("enabled", _cloud_enabled)
 
-if active_cloud_url and active_cloud_key:
+if active_cloud_url and (active_cloud_key or _cloud_api_key_configured):
     col1, col2 = st.columns(2)
 
     with col1:
         if st.button("🔍 测试云端连接"):
-            with st.spinner("正在测试..."):
-                try:
-                    result = client.test_cloud_llm_connection(
-                        provider=active_cloud_provider,
-                        base_url=active_cloud_url,
-                        api_key=active_cloud_key,
-                        model=active_cloud_model or "test",
-                    )
-                    if result.get("reachable"):
-                        st.success(f"✅ 云端 LLM 可达（延迟 {result.get('latency_ms', '?')}ms）")
-                    else:
-                        st.error(f"❌ 不可达：{result.get('error', '未知错误')}")
-                except Exception as e:
-                    st.error(f"测试请求失败：{e}")
+            # 测试需要实际 key - 如果用户没输入新 key 但已配置，提示
+            if not active_cloud_key and _cloud_api_key_configured:
+                st.info("使用已保存的 API Key 进行测试（请通过保存后使用 LLM 测试功能）")
+            elif active_cloud_key:
+                with st.spinner("正在测试..."):
+                    try:
+                        result = client.test_cloud_llm_connection(
+                            provider=active_cloud_provider,
+                            base_url=active_cloud_url,
+                            api_key=active_cloud_key,
+                            model=active_cloud_model or "test",
+                        )
+                        if result.get("reachable"):
+                            st.success(f"✅ 云端 LLM 可达（延迟 {result.get('latency_ms', '?')}ms）")
+                        else:
+                            st.error(f"❌ 不可达：{result.get('error', '未知错误')}")
+                    except Exception as e:
+                        st.error(f"测试请求失败：{e}")
+            else:
+                st.warning("请先输入 API Key")
 
     with col2:
         if st.button("🔄 获取模型列表"):
-            with st.spinner("正在获取..."):
-                try:
-                    result = client.list_cloud_llm_models(
-                        provider=active_cloud_provider,
-                        base_url=active_cloud_url,
-                        api_key=active_cloud_key,
-                    )
-                    st.session_state["cloud_models"] = result.get("models", [])
-                    if result.get("note"):
-                        st.info(result["note"])
-                except Exception as e:
-                    st.error(f"获取模型列表失败：{e}")
-                    st.session_state["cloud_models"] = []
+            if active_cloud_key:
+                with st.spinner("正在获取..."):
+                    try:
+                        result = client.list_cloud_llm_models(
+                            provider=active_cloud_provider,
+                            base_url=active_cloud_url,
+                            api_key=active_cloud_key,
+                        )
+                        st.session_state["cloud_models"] = result.get("models", [])
+                        if result.get("note"):
+                            st.info(result["note"])
+                    except Exception as e:
+                        st.error(f"获取模型列表失败：{e}")
+                        st.session_state["cloud_models"] = []
+            else:
+                st.warning("需要 API Key 才能获取模型列表")
 
     # 显示模型列表（如果有）
     cloud_models = st.session_state.get("cloud_models", [])
@@ -266,29 +297,31 @@ if active_cloud_url and active_cloud_key:
             index=model_ids.index(active_cloud_model) if active_cloud_model in model_ids else 0,
             key="cloud_model_select",
         )
-        st.session_state["cloud_model"] = selected_cloud_model
+        active_cloud_model = selected_cloud_model
 
     # 保存按钮
     if st.button("💾 保存云端 LLM 配置"):
-        final_model = st.session_state.get("cloud_model", active_cloud_model)
         with st.spinner("正在保存..."):
             try:
                 result = client.save_cloud_llm_settings(
                     enabled=active_cloud_enabled,
                     provider=active_cloud_provider,
                     base_url=active_cloud_url,
-                    api_key=active_cloud_key,
-                    default_model=final_model,
+                    api_key=active_cloud_key,  # 空字符串 = 保留已有
+                    default_model=active_cloud_model,
                     timeout_seconds=int(active_cloud_timeout),
                 )
                 if result.get("success"):
                     st.success("✅ 云端 LLM 配置已保存！")
+                    st.session_state.pop("_cloud_pending", None)
+                    st.session_state.pop("cloud_models", None)
+                    st.rerun()
                 else:
                     st.error(f"保存失败：{result.get('message', '未知错误')}")
             except Exception as e:
                 st.error(f"保存请求失败：{e}")
 
-elif active_cloud_url and not active_cloud_key:
+elif active_cloud_url and not active_cloud_key and not _cloud_api_key_configured:
     st.caption("请输入 API Key 后进行测试和保存。")
 else:
     st.caption("请填写 Base URL 和 API Key 后点击「应用云端设置」。")
@@ -329,6 +362,7 @@ if st.button("🔀 设置为默认 LLM"):
             result = client.set_active_llm_provider(active_choice)
             if result.get("success"):
                 st.success(f"✅ 已切换为 {ACTIVE_LABELS.get(active_choice, active_choice)}")
+                st.rerun()
             else:
                 st.error("切换失败")
         except Exception as e:
@@ -384,22 +418,22 @@ if search_config:
         tavily_key = st.text_input(
             "Tavily API Key",
             type="password",
-            placeholder="tvly-...",
-            help="留空不修改已有 Key",
+            placeholder="已配置，如需修改请重新输入" if tavily.get("api_key_configured") else "tvly-...",
+            help="留空保留已有 Key",
         )
         if tavily.get("api_key_configured"):
-            st.caption("✅ Tavily Key 已配置（重新输入可更换）")
+            st.caption("✅ Tavily Key 已配置（留空保留，重新输入可更换）")
 
         st.markdown("---")
         brave_enabled = st.checkbox("启用 Brave", value=brave.get("enabled", True))
         brave_key = st.text_input(
             "Brave API Key",
             type="password",
-            placeholder="BSA-...",
-            help="留空不修改已有 Key",
+            placeholder="已配置，如需修改请重新输入" if brave.get("api_key_configured") else "BSA-...",
+            help="留空保留已有 Key",
         )
         if brave.get("api_key_configured"):
-            st.caption("✅ Brave Key 已配置（重新输入可更换）")
+            st.caption("✅ Brave Key 已配置（留空保留，重新输入可更换）")
 
         st.markdown("---")
         gb_enabled = st.checkbox("启用 Google Books", value=gb.get("enabled", True))
@@ -427,6 +461,7 @@ if search_config:
                 result = client.save_search_settings(payload)
                 if result.get("success"):
                     st.success("✅ 搜索配置已保存！")
+                    st.rerun()
                 else:
                     st.error(f"保存失败：{result.get('message', '未知错误')}")
             except Exception as e:
@@ -460,7 +495,7 @@ if obsidian_config:
     else:
         st.markdown("⚠️ Vault 路径未配置（导出功能不可用）")
 
-# Vault 路径编辑
+# Vault 路径编辑 - 从 API 读取当前值
 vault_input = st.text_input(
     "Vault 路径",
     value=obsidian_config.get("vault_path", "") if obsidian_config else "",
@@ -492,6 +527,7 @@ with col2:
                     result = client.save_obsidian_settings(vault_input)
                     if result.get("success"):
                         st.success("✅ Vault 路径已保存！")
+                        st.rerun()
                     else:
                         st.error(f"保存失败：{result.get('message', '未知错误')}")
                 except Exception as e:
@@ -503,7 +539,12 @@ st.divider()
 
 # === 全部服务状态 ===
 
-with st.expander("📋 全部服务状态详情"):
+with st.expander("📋 全部服务状态详情", expanded=False):
+    col_refresh, _ = st.columns([1, 3])
+    with col_refresh:
+        if st.button("🔄 刷新服务状态", key="refresh_services_btn"):
+            st.rerun()
+
     try:
         services = client.get_services()
     except Exception as e:
@@ -516,10 +557,14 @@ with st.expander("📋 全部服务状态详情"):
             svc_type = svc.get("type", "?")
             enabled = svc.get("enabled", False)
             configured = svc.get("configured", False)
-            missing = svc.get("missing_env_vars", [])
-            note = svc.get("note")
+            available = svc.get("available", False)
+            source = svc.get("source", "default")
+            missing = svc.get("missing_keys", []) or svc.get("missing_env_vars", [])
+            message = svc.get("message") or svc.get("note")
 
-            if configured and enabled:
+            if available:
+                icon = "✅"
+            elif configured and enabled:
                 icon = "✅"
             elif enabled:
                 icon = "⚠️"
@@ -527,8 +572,8 @@ with st.expander("📋 全部服务状态详情"):
                 icon = "❌"
 
             line = f"{icon} **{name}** ({svc_type})"
-            if note:
-                line += f" — {note}"
+            if message:
+                line += f" — {message}"
             elif missing:
                 line += f" — 缺少: {', '.join(missing)}"
             st.markdown(line)
@@ -540,7 +585,7 @@ st.divider()
 st.subheader("📝 配置说明")
 st.markdown("""
 - 配置保存到 `config/runtime_settings.json`（优先级高于 `.env`）
-- API Key 不会在页面明文显示
+- API Key 不会在页面明文显示，留空保留已有配置
 - `runtime_settings.json` 已加入 `.gitignore`，不会提交到代码仓库
 - 也可以直接编辑 `.env` 文件配置
 """)

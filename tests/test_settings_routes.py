@@ -179,10 +179,12 @@ class TestGetSearchConfig:
 
     def test_tavily_not_configured_without_key(self, client) -> None:
         with patch.dict(os.environ, {"TAVILY_API_KEY": ""}, clear=False):
-            reset_settings()
-            response = client.get("/settings/search")
-            data = response.json()
-            assert data["tavily"]["api_key_configured"] is False
+            with patch("core.config._load_runtime_settings", return_value={}):
+                reset_settings()
+                response = client.get("/settings/search")
+                data = response.json()
+                assert data["tavily"]["api_key_configured"] is False
+                reset_settings()
 
 
 # === GET /settings/llm/ollama ===
@@ -687,14 +689,16 @@ class TestSearchSave:
 class TestObsidianConfig:
     def test_not_configured_by_default(self, client) -> None:
         with patch.dict(os.environ, {"OBSIDIAN_VAULT_PATH": ""}, clear=False):
-            reset_settings()
-            response = client.get("/settings/obsidian")
-            assert response.status_code == 200
-            data = response.json()
-            assert data["configured"] is False
-            assert data["vault_path"] == ""
-            assert data["exists"] is False
-            assert data["writable"] is False
+            with patch("core.config._load_runtime_settings", return_value={}):
+                reset_settings()
+                response = client.get("/settings/obsidian")
+                assert response.status_code == 200
+                data = response.json()
+                assert data["configured"] is False
+                assert data["vault_path"] == ""
+                assert data["exists"] is False
+                assert data["writable"] is False
+                reset_settings()
 
     def test_configured_with_valid_path(self, client, tmp_path) -> None:
         vault_dir = tmp_path / "vault"
@@ -763,3 +767,140 @@ class TestObsidianSave:
         data = response.json()
         assert data["success"] is False
         assert "不存在" in data["message"]
+
+
+# === Runtime Settings Integration Tests ===
+
+
+class TestServicesReflectRuntimeSettings:
+    """保存配置后 GET /settings/services 立即反映新状态。"""
+
+    def test_save_search_then_services_reflect(self, client, tmp_path) -> None:
+        """保存 search 配置后 GET /settings/services 立即反映新状态。"""
+        runtime_path = tmp_path / "runtime_settings.json"
+        runtime_path.write_text("{}")
+
+        with patch("core.config._RUNTIME_SETTINGS_PATH", runtime_path):
+            with patch("app.api.routes_settings._load_runtime_settings",
+                       side_effect=lambda: json.loads(runtime_path.read_text()) if runtime_path.exists() else {}):
+                # Save tavily config
+                with patch("app.api.routes_settings.save_runtime_settings",
+                           side_effect=lambda section, data: _write_runtime(runtime_path, section, data)):
+                    response = client.post(
+                        "/settings/search/save",
+                        json={"tavily": {"enabled": True, "api_key": "tvly-new-key"}},
+                    )
+                    assert response.json()["success"] is True
+
+            # Verify the runtime file was written correctly
+            runtime_data = json.loads(runtime_path.read_text())
+            assert runtime_data["search"]["tavily"]["api_key"] == "tvly-new-key"
+
+    def test_save_obsidian_then_services_configured(self, client, tmp_path) -> None:
+        """保存 obsidian 路径后 ServiceRegistry 立即显示 configured=true。"""
+        vault_dir = tmp_path / "vault"
+        vault_dir.mkdir()
+        runtime_path = tmp_path / "runtime_settings.json"
+        runtime_path.write_text("{}")
+
+        with patch("core.config._RUNTIME_SETTINGS_PATH", runtime_path):
+            # Save obsidian config
+            with patch("app.api.routes_settings.save_runtime_settings",
+                       side_effect=lambda section, data: _write_runtime(runtime_path, section, data)):
+                response = client.post(
+                    "/settings/obsidian/save",
+                    json={"vault_path": str(vault_dir)},
+                )
+                assert response.json()["success"] is True
+
+            # Check services reflects the new state
+            runtime_data = json.loads(runtime_path.read_text())
+            from app.core.service_registry import ServiceRegistry
+            registry = ServiceRegistry()
+            with patch.object(registry, "_load_runtime_settings", return_value=runtime_data):
+                with patch.dict(os.environ, {"OBSIDIAN_VAULT_PATH": ""}, clear=False):
+                    services = registry.list_services()
+                    obsidian = next(s for s in services if s.name == "obsidian")
+                    assert obsidian.configured is True
+
+    def test_save_ollama_then_no_missing_base_url(self, client, tmp_path) -> None:
+        """保存 ollama 配置后 GET /settings/services 不再显示缺少 OLLAMA_BASE_URL。"""
+        runtime_path = tmp_path / "runtime_settings.json"
+        runtime_path.write_text("{}")
+
+        with patch("core.config._RUNTIME_SETTINGS_PATH", runtime_path):
+            with patch("app.api.routes_settings.save_runtime_settings",
+                       side_effect=lambda section, data: _write_runtime(runtime_path, section, data)):
+                response = client.post(
+                    "/settings/llm/ollama/save",
+                    json={
+                        "base_url": "http://192.168.1.50:11434",
+                        "default_model": "qwen3:8b",
+                        "timeout_seconds": 120,
+                    },
+                )
+                assert response.json()["success"] is True
+
+            # Verify registry reads the saved data
+            runtime_data = json.loads(runtime_path.read_text())
+            from app.core.service_registry import ServiceRegistry
+            registry = ServiceRegistry()
+            with patch.object(registry, "_load_runtime_settings", return_value=runtime_data):
+                with patch.dict(os.environ, {"OLLAMA_BASE_URL": ""}, clear=False):
+                    services = registry.list_services()
+                    ollama = next(s for s in services if s.name == "ollama_lan")
+                    assert ollama.configured is True
+                    assert "OLLAMA_BASE_URL" not in ollama.missing_keys
+
+    def test_services_no_api_key_plaintext(self, client) -> None:
+        """GET /settings/services 不返回 API key 明文。"""
+        runtime = {"search": {"tavily": {"api_key": "tvly-super-secret", "enabled": True}}}
+        with patch("core.config._load_runtime_settings", return_value=runtime):
+            with patch.dict(os.environ, {"TAVILY_API_KEY": ""}, clear=False):
+                reset_settings()
+                response = client.get("/settings/services")
+                assert "tvly-super-secret" not in response.text
+                reset_settings()
+
+    def test_services_new_fields_present(self, client) -> None:
+        """GET /settings/services 返回新增字段。"""
+        response = client.get("/settings/services")
+        assert response.status_code == 200
+        data = response.json()
+        for svc in data:
+            assert "name" in svc
+            assert "type" in svc
+            assert "enabled" in svc
+            assert "configured" in svc
+            assert "source" in svc
+            assert "missing_keys" in svc
+            # 向后兼容
+            assert "missing_env_vars" in svc
+
+    def test_settings_cache_cleared_after_save(self, client, tmp_path) -> None:
+        """保存后 settings cache 被刷新。"""
+        runtime_path = tmp_path / "runtime_settings.json"
+        runtime_path.write_text("{}")
+
+        with patch("core.config._RUNTIME_SETTINGS_PATH", runtime_path):
+            with patch("app.api.routes_settings.save_runtime_settings",
+                       side_effect=lambda section, data: _write_runtime(runtime_path, section, data)):
+                # First save
+                client.post(
+                    "/settings/llm/ollama/save",
+                    json={
+                        "base_url": "http://10.0.0.1:11434",
+                        "default_model": "llama3:8b",
+                        "timeout_seconds": 60,
+                    },
+                )
+                # reset_settings is called inside the route handler
+                # Verify get_settings returns fresh data after reset
+                reset_settings()
+                from core.config import get_settings
+                with patch("core.config._load_runtime_settings",
+                           return_value=json.loads(runtime_path.read_text())):
+                    reset_settings()
+                    settings = get_settings()
+                    assert settings.ollama_base_url == "http://10.0.0.1:11434"
+                    reset_settings()

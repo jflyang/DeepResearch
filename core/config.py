@@ -2,6 +2,8 @@
 
 import json
 import logging
+import os
+import tempfile
 from functools import lru_cache
 from pathlib import Path
 
@@ -10,11 +12,16 @@ from pydantic_settings import BaseSettings, SettingsConfigDict
 
 logger = logging.getLogger(__name__)
 
-_RUNTIME_SETTINGS_PATH = Path("config/runtime_settings.json")
+# 基于本文件位置解析项目根目录，确保无论从哪里启动都能找到正确路径
+_PROJECT_ROOT = Path(__file__).resolve().parents[1]
+_RUNTIME_SETTINGS_PATH = _PROJECT_ROOT / "config" / "runtime_settings.json"
 
 
 def _load_runtime_settings() -> dict:
-    """加载 runtime_settings.json（优先级高于 .env）。"""
+    """加载 runtime_settings.json（优先级高于 .env）。
+
+    每次调用都从磁盘读取，不缓存，确保保存后立即可见。
+    """
     if not _RUNTIME_SETTINGS_PATH.exists():
         return {}
     try:
@@ -25,13 +32,32 @@ def _load_runtime_settings() -> dict:
         return {}
 
 
-def save_runtime_settings(section: str, data: dict) -> None:
-    """保存 runtime settings 的某个 section。"""
+def save_runtime_settings(section: str, data) -> None:
+    """保存 runtime settings 的某个 section。
+
+    使用原子写入：先写 .tmp 文件，再 rename，避免写入中断导致文件损坏。
+    """
     current = _load_runtime_settings()
     current[section] = data
     _RUNTIME_SETTINGS_PATH.parent.mkdir(parents=True, exist_ok=True)
-    with open(_RUNTIME_SETTINGS_PATH, "w", encoding="utf-8") as f:
-        json.dump(current, f, indent=2, ensure_ascii=False)
+
+    # 原子写入
+    tmp_fd, tmp_path = tempfile.mkstemp(
+        dir=str(_RUNTIME_SETTINGS_PATH.parent),
+        prefix=".runtime_settings_",
+        suffix=".tmp",
+    )
+    try:
+        with os.fdopen(tmp_fd, "w", encoding="utf-8") as f:
+            json.dump(current, f, indent=2, ensure_ascii=False)
+        os.replace(tmp_path, str(_RUNTIME_SETTINGS_PATH))
+    except Exception:
+        # 清理临时文件
+        try:
+            os.unlink(tmp_path)
+        except OSError:
+            pass
+        raise
 
 
 class Settings(BaseSettings):
@@ -263,5 +289,5 @@ def get_settings() -> Settings:
 
 
 def reset_settings() -> None:
-    """清除缓存（仅用于测试）。"""
+    """清除缓存，下次调用 get_settings() 时重新从磁盘加载。"""
     get_settings.cache_clear()

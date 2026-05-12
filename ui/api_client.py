@@ -1,9 +1,13 @@
 """UI → FastAPI 的 HTTP 客户端。UI 层通过此模块与后端通信。"""
 
+import time
+
 import httpx
 
 API_BASE = "http://localhost:8000"
 TIMEOUT = 120.0
+
+_NO_CACHE_HEADERS = {"Cache-Control": "no-cache"}
 
 
 class APIClient:
@@ -19,7 +23,13 @@ class APIClient:
         return r.json()
 
     def get_services(self) -> list[dict]:
-        r = httpx.get(self._url("/settings/services"), timeout=10.0)
+        """获取服务状态（不缓存，每次请求最新数据）。"""
+        r = httpx.get(
+            self._url("/settings/services"),
+            params={"_ts": int(time.time() * 1000)},
+            headers=_NO_CACHE_HEADERS,
+            timeout=10.0,
+        )
         r.raise_for_status()
         return r.json()
 

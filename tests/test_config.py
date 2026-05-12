@@ -8,6 +8,13 @@ import pytest
 from core.config import Settings, reset_settings
 
 
+# 所有测试都 mock runtime_settings 为空，避免真实文件干扰
+@pytest.fixture(autouse=True)
+def _no_runtime_settings():
+    with patch("core.config._load_runtime_settings", return_value={}):
+        yield
+
+
 class TestSettingsDefaults:
     def test_default_values(self):
         s = Settings(
